@@ -531,18 +531,20 @@ export default function DisputesPage() {
             headers={['Dispute ID', 'Order Number', 'Complainant', 'Respondent', 'Type', 'Status', 'Priority', 'Created']}
             disabled={isLoading || disputes.length === 0}
           />
-          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
-            <input
-              type="checkbox"
-              checked={useMockData}
-              onChange={(e) => {
-                setUseMockData(e.target.checked);
-                setPage(1);
-              }}
-              className="rounded"
-            />
-            Use Mock Data (Testing)
-          </label>
+          {process.env.NODE_ENV === 'development' && (
+            <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useMockData}
+                onChange={(e) => {
+                  setUseMockData(e.target.checked);
+                  setPage(1);
+                }}
+                className="rounded"
+              />
+              Use Mock Data (Dev Only)
+            </label>
+          )}
         </div>
       </div>
 

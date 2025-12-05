@@ -17,6 +17,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { contentAPI, type Product, type Service, type Story, type LiveStream, type Auction, type ContentModerationStats } from '@/lib/api/content';
+import { contentReportsAPI, type ContentReport, type ContentReportStats, type ReviewContentReportRequest } from '@/lib/api/content-reports';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -57,9 +58,13 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  User,
+  MessageSquare,
+  FileText,
+  Flag,
 } from 'lucide-react';
 
-type TabType = 'products' | 'services' | 'stories' | 'live-streams' | 'auctions';
+type TabType = 'products' | 'services' | 'stories' | 'live-streams' | 'auctions' | 'content-reports';
 
 export default function ContentModerationPage() {
   const { hasPermission } = useAuth();
@@ -76,6 +81,8 @@ export default function ContentModerationPage() {
   const [stories, setStories] = useState<Story[]>([]);
   const [liveStreams, setLiveStreams] = useState<LiveStream[]>([]);
   const [auctions, setAuctions] = useState<Auction[]>([]);
+  const [contentReports, setContentReports] = useState<ContentReport[]>([]);
+  const [contentReportStats, setContentReportStats] = useState<ContentReportStats | null>(null);
 
   // Filters
   const [productFilters, setProductFilters] = useState({ status: 'all', search: '', page: 1 });
@@ -83,12 +90,23 @@ export default function ContentModerationPage() {
   const [storyFilters, setStoryFilters] = useState({ search: '', page: 1 });
   const [streamFilters, setStreamFilters] = useState({ status: 'all', page: 1 });
   const [auctionFilters, setAuctionFilters] = useState({ status: 'all', search: '', page: 1 });
+  const [contentReportFilters, setContentReportFilters] = useState({ status: 'all' as 'all' | 'pending' | 'under_review' | 'approved' | 'action_taken' | 'dismissed', category: 'all' as 'all' | 'product' | 'service' | 'chat' | 'user', search: '', page: 1 });
 
   // Moderation dialogs
   const [approveDialog, setApproveDialog] = useState<{ open: boolean; type: string; id: string }>({ open: false, type: '', id: '' });
   const [rejectDialog, setRejectDialog] = useState<{ open: boolean; type: string; id: string }>({ open: false, type: '', id: '' });
   const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Content report dialogs
+  const [selectedReport, setSelectedReport] = useState<ContentReport | null>(null);
+  const [isReportDetailDialogOpen, setIsReportDetailDialogOpen] = useState(false);
+  const [isReportReviewDialogOpen, setIsReportReviewDialogOpen] = useState(false);
+  const [reviewForm, setReviewForm] = useState<ReviewContentReportRequest>({
+    status: 'approved',
+    actionTaken: 'no_action',
+    actionReason: '',
+  });
 
   // Media viewer dialog
   const [mediaViewer, setMediaViewer] = useState<{
@@ -114,9 +132,12 @@ export default function ContentModerationPage() {
   useEffect(() => {
     if (canViewProducts) {
       fetchStats();
+      if (activeTab === 'content-reports') {
+        fetchContentReportStats();
+      }
       fetchContent();
     }
-  }, [activeTab, productFilters, serviceFilters, storyFilters, streamFilters, auctionFilters]);
+  }, [activeTab, productFilters, serviceFilters, storyFilters, streamFilters, auctionFilters, contentReportFilters]);
 
   const fetchStats = async () => {
     try {
@@ -127,6 +148,15 @@ export default function ContentModerationPage() {
       console.error('Failed to fetch stats:', err);
     } finally {
       setIsLoadingStats(false);
+    }
+  };
+
+  const fetchContentReportStats = async () => {
+    try {
+      const statsData = await contentReportsAPI.getStats();
+      setContentReportStats(statsData);
+    } catch (err: any) {
+      console.error('Failed to fetch content report stats:', err);
     }
   };
 
@@ -164,6 +194,18 @@ export default function ContentModerationPage() {
           if (canViewProducts) {
             const auctionsData = await contentAPI.getAuctions(auctionFilters);
             setAuctions(auctionsData.auctions || []);
+          }
+          break;
+        case 'content-reports':
+          if (canViewProducts) {
+            const reportsData = await contentReportsAPI.getReports({
+              status: contentReportFilters.status !== 'all' ? contentReportFilters.status : undefined,
+              category: contentReportFilters.category !== 'all' ? contentReportFilters.category : undefined,
+              search: contentReportFilters.search || undefined,
+              page: contentReportFilters.page,
+              limit: 20,
+            });
+            setContentReports(reportsData.reports);
           }
           break;
       }
@@ -465,6 +507,18 @@ export default function ContentModerationPage() {
               Auctions
             </button>
           )}
+          {canViewProducts && (
+            <button
+              onClick={() => setActiveTab('content-reports')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'content-reports'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Content Reports
+            </button>
+          )}
         </nav>
       </div>
 
@@ -614,6 +668,38 @@ export default function ContentModerationPage() {
               canRemove={canRemoveProducts}
             />
           )}
+
+          {/* Content Reports Tab */}
+          {activeTab === 'content-reports' && canViewProducts && (
+            <ContentReportsTab
+              reports={contentReports}
+              stats={contentReportStats}
+              filters={contentReportFilters}
+              onFiltersChange={setContentReportFilters}
+              onViewDetails={async (reportId) => {
+                try {
+                  const report = await contentReportsAPI.getReport(reportId);
+                  setSelectedReport(report);
+                  setIsReportDetailDialogOpen(true);
+                } catch (err: any) {
+                  toast({
+                    title: 'Error',
+                    description: 'Failed to load report details',
+                    variant: 'destructive',
+                  });
+                }
+              }}
+              onReview={(reportId) => {
+                const report = contentReports.find(r => r.id === reportId);
+                if (report) {
+                  setSelectedReport(report);
+                  setReviewForm({ status: 'approved', actionTaken: 'no_action', actionReason: '' });
+                  setIsReportReviewDialogOpen(true);
+                }
+              }}
+              canReview={canApproveProducts}
+            />
+          )}
         </>
       )}
 
@@ -711,6 +797,214 @@ export default function ContentModerationPage() {
             </Button>
             <Button variant="destructive" onClick={handleReject} disabled={isSubmitting || !reason.trim()}>
               {isSubmitting ? 'Processing...' : rejectDialog.type === 'stream' ? 'End Stream' : 'Confirm'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Content Report Detail Dialog */}
+      <Dialog open={isReportDetailDialogOpen} onOpenChange={setIsReportDetailDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Content Report Details</DialogTitle>
+            <DialogDescription>
+              Review the full details of this content report
+            </DialogDescription>
+          </DialogHeader>
+          {selectedReport && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Status</Label>
+                  <div className="mt-1">
+                    <Badge variant={selectedReport.status === 'pending' ? 'secondary' : selectedReport.status === 'action_taken' ? 'default' : 'outline'}>
+                      {selectedReport.status.replace(/_/g, ' ')}
+                    </Badge>
+                  </div>
+                </div>
+                <div>
+                  <Label>Category</Label>
+                  <div className="mt-1 flex items-center gap-2 capitalize">
+                    {selectedReport.reportCategory === 'product' && <Package className="h-4 w-4" />}
+                    {selectedReport.reportCategory === 'service' && <Briefcase className="h-4 w-4" />}
+                    {selectedReport.reportCategory === 'chat' && <MessageSquare className="h-4 w-4" />}
+                    {selectedReport.reportCategory === 'user' && <User className="h-4 w-4" />}
+                    {selectedReport.reportCategory}
+                  </div>
+                </div>
+                <div>
+                  <Label>Report Type</Label>
+                  <p className="mt-1 text-sm capitalize">{selectedReport.reportType.replace(/_/g, ' ')}</p>
+                </div>
+                <div>
+                  <Label>Reported By</Label>
+                  <p className="mt-1 text-sm">{selectedReport.reporterName || 'Unknown'}</p>
+                </div>
+                <div>
+                  <Label>Created At</Label>
+                  <p className="mt-1 text-sm">{new Date(selectedReport.createdAt).toLocaleString()}</p>
+                </div>
+                {selectedReport.moderatedAt && (
+                  <div>
+                    <Label>Moderated At</Label>
+                    <p className="mt-1 text-sm">{new Date(selectedReport.moderatedAt).toLocaleString()}</p>
+                  </div>
+                )}
+              </div>
+              <div>
+                <Label>Reason</Label>
+                <p className="mt-1 text-sm">{selectedReport.reason}</p>
+              </div>
+              {selectedReport.description && (
+                <div>
+                  <Label>Description</Label>
+                  <p className="mt-1 text-sm">{selectedReport.description}</p>
+                </div>
+              )}
+              {selectedReport.evidence && selectedReport.evidence.length > 0 && (
+                <div>
+                  <Label>Evidence</Label>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {selectedReport.evidence.map((item, idx) => (
+                      <div key={idx} className="border rounded p-2">
+                        {item.type === 'image' ? (
+                          <img src={item.url} alt={item.description} className="w-full h-32 object-cover rounded" />
+                        ) : (
+                          <div className="flex items-center gap-2 p-4">
+                            <FileText className="h-8 w-8 text-muted-foreground" />
+                            <span className="text-sm">{item.description}</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {selectedReport.actionTaken && (
+                <div>
+                  <Label>Action Taken</Label>
+                  <p className="mt-1 text-sm capitalize">{selectedReport.actionTaken.replace(/_/g, ' ')}</p>
+                  {selectedReport.actionReason && (
+                    <p className="mt-1 text-sm text-muted-foreground">{selectedReport.actionReason}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            {canApproveProducts && selectedReport?.status === 'pending' && (
+              <Button
+                onClick={() => {
+                  setIsReportDetailDialogOpen(false);
+                  setReviewForm({ status: 'approved', actionTaken: 'no_action', actionReason: '' });
+                  setIsReportReviewDialogOpen(true);
+                }}
+              >
+                Review Report
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setIsReportDetailDialogOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Content Report Review Dialog */}
+      <Dialog open={isReportReviewDialogOpen} onOpenChange={setIsReportReviewDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Review Content Report</DialogTitle>
+            <DialogDescription>
+              Take action on this content report
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Action</Label>
+              <select
+                value={reviewForm.status}
+                onChange={(e) => {
+                  const status = e.target.value as 'approved' | 'action_taken' | 'dismissed';
+                  setReviewForm(prev => ({
+                    ...prev,
+                    status,
+                    actionTaken: status === 'action_taken' ? prev.actionTaken : undefined,
+                  }));
+                }}
+                className="w-full mt-1 px-3 py-2 border rounded-md bg-background"
+              >
+                <option value="approved">Approve (No Action)</option>
+                <option value="action_taken">Take Action</option>
+                <option value="dismissed">Dismiss</option>
+              </select>
+            </div>
+            {reviewForm.status === 'action_taken' && (
+              <div>
+                <Label>Action Type</Label>
+                <select
+                  value={reviewForm.actionTaken || 'no_action'}
+                  onChange={(e) => setReviewForm(prev => ({ ...prev, actionTaken: e.target.value as any }))}
+                  className="w-full mt-1 px-3 py-2 border rounded-md bg-background"
+                >
+                  <option value="no_action">No Action</option>
+                  <option value="content_removed">Remove Content</option>
+                  <option value="content_hidden">Hide Content</option>
+                  <option value="user_warned">Warn User</option>
+                  <option value="user_suspended">Suspend User</option>
+                  <option value="user_banned">Ban User</option>
+                </select>
+              </div>
+            )}
+            <div>
+              <Label>Reason *</Label>
+              <Textarea
+                value={reviewForm.actionReason}
+                onChange={(e) => setReviewForm(prev => ({ ...prev, actionReason: e.target.value }))}
+                placeholder="Explain your decision..."
+                rows={4}
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsReportReviewDialogOpen(false)} disabled={isSubmitting}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={async () => {
+                if (!selectedReport || !reviewForm.actionReason.trim()) {
+                  toast({
+                    title: 'Validation Error',
+                    description: 'Please provide a reason for your action',
+                    variant: 'destructive',
+                  });
+                  return;
+                }
+                try {
+                  setIsSubmitting(true);
+                  await contentReportsAPI.reviewReport(selectedReport.id, reviewForm);
+                  toast({
+                    title: 'Success',
+                    description: 'Report reviewed successfully',
+                  });
+                  setIsReportReviewDialogOpen(false);
+                  setReviewForm({ status: 'approved', actionTaken: 'no_action', actionReason: '' });
+                  await fetchContent();
+                  await fetchContentReportStats();
+                } catch (err: any) {
+                  toast({
+                    title: 'Error',
+                    description: err.response?.data?.message || 'Failed to review report',
+                    variant: 'destructive',
+                  });
+                } finally {
+                  setIsSubmitting(false);
+                }
+              }} 
+              disabled={isSubmitting || !reviewForm.actionReason.trim()}
+            >
+              {isSubmitting ? 'Processing...' : 'Submit Review'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1391,6 +1685,205 @@ function AuctionsTab({
       {auctions.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">No auctions found</div>
       )}
+    </div>
+  );
+}
+
+// Content Reports Tab Component
+function ContentReportsTab({
+  reports,
+  stats,
+  filters,
+  onFiltersChange,
+  onViewDetails,
+  onReview,
+  canReview,
+}: {
+  reports: ContentReport[];
+  stats: ContentReportStats | null;
+  filters: { status: 'all' | 'pending' | 'under_review' | 'approved' | 'action_taken' | 'dismissed'; category: 'all' | 'product' | 'service' | 'chat' | 'user'; search: string; page: number };
+  onFiltersChange: (filters: any) => void;
+  onViewDetails: (reportId: string) => void;
+  onReview: (reportId: string) => void;
+  canReview: boolean;
+}) {
+  const getStatusBadge = (status: ContentReport['status']) => {
+    const variants: Record<ContentReport['status'], { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
+      pending: { variant: 'secondary', label: 'Pending' },
+      under_review: { variant: 'default', label: 'Under Review' },
+      approved: { variant: 'outline', label: 'Approved' },
+      action_taken: { variant: 'default', label: 'Action Taken' },
+      dismissed: { variant: 'outline', label: 'Dismissed' },
+    };
+    const config = variants[status];
+    return <Badge variant={config.variant}>{config.label}</Badge>;
+  };
+
+  const getCategoryIcon = (category: ContentReport['reportCategory']) => {
+    switch (category) {
+      case 'product': return <Package className="h-4 w-4" />;
+      case 'service': return <Briefcase className="h-4 w-4" />;
+      case 'chat': return <MessageSquare className="h-4 w-4" />;
+      case 'user': return <User className="h-4 w-4" />;
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Statistics Cards */}
+      {stats && (
+        <div className="grid gap-4 md:grid-cols-5">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Reports</p>
+                  <p className="text-2xl font-bold">{stats.totalReports}</p>
+                </div>
+                <Flag className="h-8 w-8 text-blue-500" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Pending</p>
+                  <p className="text-2xl font-bold">{stats.pendingReports}</p>
+                </div>
+                <Clock className="h-8 w-8 text-yellow-500" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Under Review</p>
+                  <p className="text-2xl font-bold">{stats.underReviewReports}</p>
+                </div>
+                <Eye className="h-8 w-8 text-orange-500" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Action Taken</p>
+                  <p className="text-2xl font-bold">{stats.actionTakenReports}</p>
+                </div>
+                <CheckCircle className="h-8 w-8 text-green-500" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Dismissed</p>
+                  <p className="text-2xl font-bold">{stats.dismissedReports}</p>
+                </div>
+                <XCircle className="h-8 w-8 text-gray-500" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="flex gap-4 flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search reports..."
+            value={filters.search}
+            onChange={(e) => onFiltersChange({ ...filters, search: e.target.value, page: 1 })}
+            className="pl-10"
+          />
+        </div>
+        <select
+          value={filters.status}
+          onChange={(e) => onFiltersChange({ ...filters, status: e.target.value as any, page: 1 })}
+          className="px-3 py-2 border rounded-md bg-background"
+        >
+          <option value="all">All Status</option>
+          <option value="pending">Pending</option>
+          <option value="under_review">Under Review</option>
+          <option value="approved">Approved</option>
+          <option value="action_taken">Action Taken</option>
+          <option value="dismissed">Dismissed</option>
+        </select>
+        <select
+          value={filters.category}
+          onChange={(e) => onFiltersChange({ ...filters, category: e.target.value as any, page: 1 })}
+          className="px-3 py-2 border rounded-md bg-background"
+        >
+          <option value="all">All Categories</option>
+          <option value="product">Products</option>
+          <option value="service">Services</option>
+          <option value="chat">Chats</option>
+          <option value="user">Users</option>
+        </select>
+      </div>
+
+      {/* Reports List */}
+      <div className="space-y-4">
+        {reports.map((report) => (
+          <Card key={report.id} className="hover:shadow-md transition-shadow">
+            <CardContent className="pt-6">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    {getCategoryIcon(report.reportCategory)}
+                    <div>
+                      <h3 className="font-semibold capitalize">
+                        {report.reportCategory} Report - {report.reportType.replace(/_/g, ' ')}
+                      </h3>
+                      <p className="text-sm text-muted-foreground">
+                        Reported by {report.reporterName || 'Unknown'} • {new Date(report.createdAt).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 mb-2 line-clamp-2">
+                    {report.reason}
+                  </p>
+                  {report.description && (
+                    <p className="text-xs text-muted-foreground line-clamp-1">
+                      {report.description}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {getStatusBadge(report.status)}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onViewDetails(report.id)}
+                  >
+                    <Eye className="h-4 w-4 mr-1" />
+                    View
+                  </Button>
+                  {canReview && report.status === 'pending' && (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => onReview(report.id)}
+                    >
+                      Review
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+        {reports.length === 0 && (
+          <div className="text-center py-12 text-muted-foreground">
+            No content reports found
+          </div>
+        )}
+      </div>
     </div>
   );
 }

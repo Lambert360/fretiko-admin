@@ -22,6 +22,7 @@ import {
   Shield,
   ClipboardList,
   Building2,
+  Flag,
 } from 'lucide-react';
 
 interface NavItem {
