@@ -22,6 +22,7 @@ import {
   Shield,
   ClipboardList,
   Building2,
+  Scale,
 } from 'lucide-react';
 
 interface NavItem {
@@ -55,6 +56,12 @@ const navItems: NavItem[] = [
     href: '/dashboard/disputes',
     icon: MessageSquare,
     permission: 'view_disputes',
+  },
+  {
+    title: 'Suspension Appeals',
+    href: '/dashboard/appeals',
+    icon: Scale,
+    permission: 'suspend_users',
   },
   {
     title: 'Content Moderation',

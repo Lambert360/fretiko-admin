@@ -360,5 +360,115 @@ export const contentAPI = {
   getStats: async (): Promise<ContentModerationStats> => {
     return apiClient.get<ContentModerationStats>('/admin/content/stats');
   },
+
+  /**
+   * Get reported content for moderation (staff)
+   * GET /admin/content/reported
+   */
+  getReportedContent: async (filters?: {
+    status?: 'pending' | 'under_review' | 'approved' | 'action_taken' | 'dismissed';
+    category?: 'product' | 'service' | 'chat' | 'user';
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ reports: any[]; total: number }> => {
+    const params = new URLSearchParams();
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.category) params.append('category', filters.category);
+    if (filters?.search) params.append('search', filters.search);
+    if (filters?.page) params.append('page', filters.page.toString());
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+
+    return apiClient.get<{ reports: any[]; total: number }>(
+      `/admin/content/reported${params.toString() ? `?${params.toString()}` : ''}`,
+    );
+  },
+
+  /**
+   * Get reported content statistics (staff)
+   * GET /admin/content/reported/stats
+   */
+  getReportedContentStats: async (): Promise<{
+    totalReports: number;
+    pendingReports: number;
+    underReviewReports: number;
+    actionTakenReports: number;
+    dismissedReports: number;
+    byCategory: {
+      product: number;
+      service: number;
+      chat: number;
+      user: number;
+    };
+  }> => {
+    return apiClient.get('/admin/content/reported/stats');
+  },
+
+  /**
+   * Review reported content (staff)
+   * POST /admin/content/reported/:id/review
+   */
+  reviewReportedContent: async (
+    reportId: string,
+    review: {
+      status: 'approved' | 'action_taken' | 'dismissed';
+      actionTaken?: 'no_action' | 'content_removed' | 'content_hidden' | 'user_warned' | 'user_suspended' | 'user_banned';
+      actionReason: string;
+    },
+  ): Promise<any> => {
+    return apiClient.post(`/admin/content/reported/${reportId}/review`, review);
+  },
+
+  /**
+   * Get product by ID (direct fetch from moderation endpoint)
+   * GET /admin/content/products/:id
+   */
+  getProductById: async (productId: string): Promise<Product | null> => {
+    try {
+      console.log('[contentAPI.getProductById] Fetching product:', productId);
+      const response = await apiClient.get<Product>(`/admin/content/products/${productId}`);
+      console.log('[contentAPI.getProductById] Product fetched successfully:', response);
+      return response;
+    } catch (error: any) {
+      console.error('[contentAPI.getProductById] Error fetching product by ID:', {
+        productId,
+        error: error?.response?.data || error?.message || error,
+        status: error?.response?.status,
+        statusText: error?.response?.statusText,
+        data: error?.response?.data,
+      });
+      if (error?.response?.status === 404) {
+        console.log('[contentAPI.getProductById] Product not found (404)');
+        return null;
+      }
+      throw new Error(`Failed to fetch product: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  },
+
+  /**
+   * Get service by ID (direct fetch from moderation endpoint)
+   * GET /admin/content/services/:id
+   */
+  getServiceById: async (serviceId: string): Promise<Service | null> => {
+    try {
+      console.log('[contentAPI.getServiceById] Fetching service:', serviceId);
+      const response = await apiClient.get<Service>(`/admin/content/services/${serviceId}`);
+      console.log('[contentAPI.getServiceById] Service fetched successfully:', response);
+      return response;
+    } catch (error: any) {
+      console.error('[contentAPI.getServiceById] Error fetching service by ID:', {
+        serviceId,
+        error: error?.response?.data || error?.message || error,
+        status: error?.response?.status,
+        statusText: error?.response?.statusText,
+        data: error?.response?.data,
+      });
+      if (error?.response?.status === 404) {
+        console.log('[contentAPI.getServiceById] Service not found (404)');
+        return null;
+      }
+      throw new Error(`Failed to fetch service: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+    }
+  },
 };
 
