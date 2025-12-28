@@ -17,7 +17,7 @@ import {
   DialogFooter,
   DialogClose,
 } from '@/components/ui/dialog';
-import { Search, FileText, Clock, CheckCircle, AlertTriangle, PlusCircle, Eye, TrendingUp, Send, CheckCircle2 } from 'lucide-react';
+import { Search, FileText, Clock, CheckCircle, AlertTriangle, PlusCircle, Eye, TrendingUp, Send, CheckCircle2, Image as ImageIcon, Video, File, Download, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Label } from '@/components/ui/label';
 
@@ -53,6 +53,7 @@ export default function ReportsPage() {
   const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
   const [reviewNotes, setReviewNotes] = useState('');
   const [reviewStatus, setReviewStatus] = useState<'under_review' | 'reviewed'>('under_review');
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const canViewReports = isSuperAdmin || hasPermission('view_reports');
   const canCreateReports = isSuperAdmin || hasPermission('create_reports');
@@ -666,6 +667,81 @@ export default function ReportsPage() {
                 <p className="text-sm font-medium text-muted-foreground mb-2">Content</p>
                 <p className="text-sm whitespace-pre-wrap bg-muted p-4 rounded-md">{selectedReport.content}</p>
               </div>
+              {selectedReport.attachments && selectedReport.attachments.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-2">Attachments ({selectedReport.attachments.length})</p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {selectedReport.attachments.map((attachment, index) => {
+                      const isImage = attachment.type === 'image' || attachment.url.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                      const isVideo = attachment.type === 'video' || attachment.url.match(/\.(mp4|webm|ogg|mov)$/i);
+                      
+                      return (
+                        <div key={index} className="border rounded-md overflow-hidden bg-muted/50 hover:bg-muted transition-colors">
+                          {isImage ? (
+                            <div className="relative aspect-video group cursor-pointer" onClick={() => setSelectedImage(attachment.url)}>
+                              <img
+                                src={attachment.url}
+                                alt={attachment.name}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3EImage%3C/text%3E%3C/svg%3E';
+                                }}
+                              />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                                <ImageIcon className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                              </div>
+                            </div>
+                          ) : isVideo ? (
+                            <div className="relative aspect-video bg-black flex items-center justify-center">
+                              <video
+                                src={attachment.url}
+                                className="w-full h-full object-cover"
+                                controls
+                                onError={(e) => {
+                                  // Fallback if video fails to load
+                                  const target = e.target as HTMLVideoElement;
+                                  target.style.display = 'none';
+                                }}
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ display: 'none' }} id={`video-error-${index}`}>
+                                <div className="text-center text-white p-4">
+                                  <Video className="h-8 w-8 mx-auto mb-2" />
+                                  <p className="text-xs">Video unavailable</p>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="aspect-video flex flex-col items-center justify-center p-4">
+                              <File className="h-8 w-8 text-muted-foreground mb-2" />
+                              <p className="text-xs text-center text-muted-foreground truncate w-full">{attachment.name}</p>
+                            </div>
+                          )}
+                          <div className="p-2 border-t">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs text-muted-foreground truncate flex-1" title={attachment.name}>
+                                {attachment.name}
+                              </p>
+                              <a
+                                href={attachment.url}
+                                download={attachment.name}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary hover:text-primary/80 transition-colors"
+                                title="Download"
+                              >
+                                <Download className="h-4 w-4" />
+                              </a>
+                            </div>
+                            {attachment.size && (
+                              <p className="text-xs text-muted-foreground mt-1">{attachment.size}</p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               {selectedReport.reviewNotes && (
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-2">Review Notes</p>
@@ -738,6 +814,34 @@ export default function ReportsPage() {
               {isActionLoading ? 'Reviewing...' : 'Submit Review'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Image Preview Dialog */}
+      <Dialog open={!!selectedImage} onOpenChange={(open) => !open && setSelectedImage(null)}>
+        <DialogContent className="max-w-4xl p-0">
+          {selectedImage && (
+            <>
+              <div className="relative">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute top-2 right-2 z-10 bg-black/50 hover:bg-black/70 text-white"
+                  onClick={() => setSelectedImage(null)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+                <img
+                  src={selectedImage}
+                  alt="Preview"
+                  className="w-full h-auto max-h-[80vh] object-contain"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23ddd" width="400" height="300"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999"%3EFailed to load image%3C/text%3E%3C/svg%3E';
+                  }}
+                />
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 

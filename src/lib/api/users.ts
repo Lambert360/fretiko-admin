@@ -12,6 +12,9 @@ export interface User {
   fullName?: string;
   userRole: 'citizen' | 'vendor' | 'rider';
   isActive: boolean;
+  isDeleted?: boolean;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
   createdAt: string;
   avatarUrl?: string;
   ordersCount?: number;
@@ -33,7 +36,7 @@ export interface UserListResponse {
 
 export interface UserFilters {
   role?: 'citizen' | 'vendor' | 'rider' | 'all';
-  status?: 'active' | 'suspended' | 'all';
+  status?: 'active' | 'suspended' | 'deleted' | 'all';
   search?: string;
   page?: number;
   limit?: number;
@@ -94,6 +97,33 @@ export const usersAPI = {
    */
   deleteUser: async (id: string): Promise<{ message: string }> => {
     return apiClient.delete<{ message: string }>(`/admin/users/${id}`);
+  },
+
+  /**
+   * Warn a user
+   * POST /admin/users/:id/warn
+   */
+  warnUser: async (
+    id: string,
+    severity: 'low' | 'medium' | 'high',
+    reason: string,
+    relatedContentId?: string,
+    relatedContentType?: 'product' | 'service' | 'chat' | 'user',
+  ): Promise<{ message: string; warning: any }> => {
+    return apiClient.post<{ message: string; warning: any }>(`/admin/users/${id}/warn`, {
+      severity,
+      reason,
+      relatedContentId,
+      relatedContentType,
+    });
+  },
+
+  /**
+   * Get user's warning history
+   * GET /admin/users/:id/warnings
+   */
+  getUserWarnings: async (id: string): Promise<any[]> => {
+    return apiClient.get<any[]>(`/admin/users/${id}/warnings`);
   },
 };
 

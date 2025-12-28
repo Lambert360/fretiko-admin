@@ -120,8 +120,21 @@ export const disputesAPI = {
    * Escalate dispute
    * POST /admin/disputes/:id/escalate
    */
-  escalateDispute: async (disputeId: string, reason: string): Promise<void> => {
-    await apiClient.post(`/admin/disputes/${disputeId}/escalate`, { reason });
+  escalateDispute: async (
+    disputeId: string, 
+    reason: string,
+    options?: {
+      departmentId?: string;
+      createReport?: boolean;
+      attachments?: Array<{ type: string; url: string; name: string; size?: string }>;
+    }
+  ): Promise<{ message: string; reportCreated?: boolean; reportNumber?: string }> => {
+    return apiClient.post(`/admin/disputes/${disputeId}/escalate`, { 
+      reason,
+      departmentId: options?.departmentId,
+      createReport: options?.createReport,
+      attachments: options?.attachments,
+    });
   },
 
   /**

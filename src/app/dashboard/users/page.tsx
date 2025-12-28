@@ -19,7 +19,7 @@ import { usersAPI, type User, type UserStats } from '@/lib/api/users';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, UserPlus, MoreVertical, Ban, Trash2, Eye, AlertCircle, Users as UsersIcon, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { Search, UserPlus, MoreVertical, Ban, Trash2, Eye, AlertCircle, Users as UsersIcon, RefreshCw, CheckCircle2, AlertTriangle, History } from 'lucide-react';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingSpinner, SkeletonTable } from '@/components/ui/loading';
 import { ExportButton } from '@/components/ui/export-button';
@@ -48,7 +48,7 @@ export default function UsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRole, setSelectedRole] = useState<'citizen' | 'vendor' | 'rider' | 'all'>('all');
-  const [selectedStatus, setSelectedStatus] = useState<'active' | 'suspended' | 'all'>('all');
+  const [selectedStatus, setSelectedStatus] = useState<'active' | 'suspended' | 'deleted' | 'all'>('all');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
@@ -59,10 +59,18 @@ export default function UsersPage() {
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [isSuspendDialogOpen, setIsSuspendDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isWarnDialogOpen, setIsWarnDialogOpen] = useState(false);
+  const [isWarningsHistoryOpen, setIsWarningsHistoryOpen] = useState(false);
   const [suspendReason, setSuspendReason] = useState('');
+  const [warnSeverity, setWarnSeverity] = useState<'low' | 'medium' | 'high'>('medium');
+  const [warnReason, setWarnReason] = useState('');
+  const [userWarnings, setUserWarnings] = useState<any[]>([]);
+  const [isLoadingWarnings, setIsLoadingWarnings] = useState(false);
+  const [userWarningCounts, setUserWarningCounts] = useState<Record<string, number>>({});
 
   // Check if user has permission to view users
   const canViewUsers = isSuperAdmin || hasPermission('view_users');
+  const canWarnUsers = isSuperAdmin || hasPermission('suspend_users');
 
   const fetchStats = async () => {
     try {
@@ -90,6 +98,21 @@ export default function UsersPage() {
       const response = await usersAPI.getAllUsers(filters);
       setUsers(response.users);
       setTotal(response.total);
+      
+      // Fetch warning counts for all users
+      const warningCounts: Record<string, number> = {};
+      await Promise.all(
+        response.users.map(async (user) => {
+          try {
+            const warnings = await usersAPI.getUserWarnings(user.id);
+            warningCounts[user.id] = warnings.length;
+          } catch (err) {
+            // Silently fail for individual warning fetches
+            warningCounts[user.id] = 0;
+          }
+        })
+      );
+      setUserWarningCounts(warningCounts);
     } catch (err: any) {
       console.error('Failed to fetch users:', err);
       
@@ -210,6 +233,8 @@ export default function UsersPage() {
       const user = await usersAPI.getUserById(userId);
       setSelectedUser(user);
       setIsDetailsDialogOpen(true);
+      // Fetch warnings for this user
+      await fetchUserWarnings(userId);
     } catch (err: any) {
       toast({
         title: 'Error',
@@ -218,6 +243,70 @@ export default function UsersPage() {
       });
     } finally {
       setIsActionLoading(null);
+    }
+  };
+
+  const fetchUserWarnings = async (userId: string) => {
+    try {
+      setIsLoadingWarnings(true);
+      const warnings = await usersAPI.getUserWarnings(userId);
+      setUserWarnings(warnings);
+      // Count warnings for badge
+      setUserWarningCounts(prev => ({ ...prev, [userId]: warnings.length }));
+    } catch (err: any) {
+      console.error('Failed to fetch warnings:', err);
+      // Don't show error toast, just log it
+    } finally {
+      setIsLoadingWarnings(false);
+    }
+  };
+
+  const handleWarnClick = (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (user) {
+      setSelectedUser(user);
+      setIsWarnDialogOpen(true);
+    }
+  };
+
+  const handleWarnUser = async () => {
+    if (!selectedUser || !warnReason.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Please provide a reason for the warning',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setIsActionLoading(selectedUser.id);
+      await usersAPI.warnUser(selectedUser.id, warnSeverity, warnReason);
+      await fetchUserWarnings(selectedUser.id);
+      setIsWarnDialogOpen(false);
+      setWarnReason('');
+      setWarnSeverity('medium');
+      toast({
+        title: 'Success',
+        description: `Warning issued to ${selectedUser.fullName || selectedUser.username}`,
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to warn user',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsActionLoading(null);
+    }
+  };
+
+  const handleViewWarningsHistory = async (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (user) {
+      setSelectedUser(user);
+      setIsWarningsHistoryOpen(true);
+      await fetchUserWarnings(userId);
     }
   };
 
@@ -231,8 +320,9 @@ export default function UsersPage() {
 
     const matchesRole = selectedRole === 'all' || user.userRole === selectedRole;
     const matchesStatus = selectedStatus === 'all' || 
-      (selectedStatus === 'active' && user.isActive) ||
-      (selectedStatus === 'suspended' && !user.isActive);
+      (selectedStatus === 'active' && user.isActive && !user.isDeleted) ||
+      (selectedStatus === 'suspended' && !user.isActive && !user.isDeleted) ||
+      (selectedStatus === 'deleted' && user.isDeleted);
 
     return matchesSearch && matchesRole && matchesStatus;
   });
@@ -299,7 +389,7 @@ export default function UsersPage() {
                 'Username': user.username,
                 'Email': user.email,
                 'Role': user.userRole,
-                'Status': user.isActive ? 'Active' : 'Suspended',
+                'Status': user.isDeleted ? 'Deleted' : (user.isActive ? 'Active' : 'Suspended'),
                 'Total Orders': user.ordersCount || 0,
                 'Joined': formatDateForExport(user.createdAt),
               }))}
@@ -367,14 +457,16 @@ export default function UsersPage() {
               onClick: async (items) => {
                 try {
                   setIsActionLoading('bulk');
-                  for (const user of items) {
+                  // Filter out deleted users from bulk actions
+                  const activeUsers = items.filter(user => !user.isDeleted);
+                  for (const user of activeUsers) {
                     if (!user.isActive) {
                       await usersAPI.activateUser(user.id);
                     }
                   }
                   toast({
                     title: 'Success',
-                    description: `${items.length} user(s) activated successfully`,
+                    description: `${activeUsers.length} user(s) activated successfully`,
                   });
                   setSelectedUsers([]);
                   await fetchUsers();
@@ -390,7 +482,10 @@ export default function UsersPage() {
                 }
               },
               variant: 'default',
-              disabled: !hasPermission('manage_users'),
+              disabled: !hasPermission('manage_users') || selectedUsers.some(id => {
+                const user = users.find(u => u.id === id);
+                return user?.isDeleted;
+              }),
             },
             {
               label: 'Suspend',
@@ -399,14 +494,16 @@ export default function UsersPage() {
                 // For bulk actions, we'll suspend without reason (can be enhanced later)
                 try {
                   setIsActionLoading('bulk');
-                  for (const user of items) {
+                  // Filter out deleted users from bulk actions
+                  const activeUsers = items.filter(user => !user.isDeleted);
+                  for (const user of activeUsers) {
                     if (user.isActive) {
                       await usersAPI.suspendUser(user.id, 'Bulk suspended by admin');
                     }
                   }
                   toast({
                     title: 'Success',
-                    description: `${items.length} user(s) suspended successfully`,
+                    description: `${activeUsers.length} user(s) suspended successfully`,
                   });
                   setSelectedUsers([]);
                   await fetchUsers();
@@ -422,7 +519,10 @@ export default function UsersPage() {
                 }
               },
               variant: 'default',
-              disabled: !hasPermission('manage_users'),
+              disabled: !hasPermission('manage_users') || selectedUsers.some(id => {
+                const user = users.find(u => u.id === id);
+                return user?.isDeleted;
+              }),
             },
           ]}
         />
@@ -474,6 +574,7 @@ export default function UsersPage() {
                 <option value="all">All Status</option>
                 <option value="active">Active</option>
                 <option value="suspended">Suspended</option>
+                <option value="deleted">Deleted</option>
               </select>
             </div>
           </div>
@@ -501,10 +602,11 @@ export default function UsersPage() {
                     <tr className="text-left">
                       <th className="pb-3 font-medium text-sm text-muted-foreground w-12">
                         <Checkbox
-                          checked={selectedUsers.length === users.length && users.length > 0}
+                          checked={selectedUsers.length === filteredUsers.filter(u => !u.isDeleted).length && filteredUsers.filter(u => !u.isDeleted).length > 0}
                           onCheckedChange={(checked) => {
                             if (checked) {
-                              setSelectedUsers(users.map(u => u.id));
+                              // Only select non-deleted users
+                              setSelectedUsers(filteredUsers.filter(u => !u.isDeleted).map(u => u.id));
                             } else {
                               setSelectedUsers([]);
                             }
@@ -542,6 +644,7 @@ export default function UsersPage() {
                                   setSelectedUsers(selectedUsers.filter(id => id !== user.id));
                                 }
                               }}
+                              disabled={user.isDeleted}
                               aria-label={`Select ${user.fullName || user.username}`}
                             />
                           </td>
@@ -558,9 +661,16 @@ export default function UsersPage() {
                                   <span className="text-sm font-medium text-primary">{initials}</span>
                                 </div>
                               )}
-                              <div>
-                                <p className="font-medium">{user.fullName || user.username}</p>
-                                <p className="text-sm text-muted-foreground">@{user.username}</p>
+                              <div className="flex items-center gap-2">
+                                <div>
+                                  <p className="font-medium">{user.fullName || user.username}</p>
+                                  <p className="text-sm text-muted-foreground">@{user.username}</p>
+                                </div>
+                                {userWarningCounts[user.id] > 0 && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+                                    {userWarningCounts[user.id]} {userWarningCounts[user.id] === 1 ? 'warning' : 'warnings'}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </td>
@@ -576,9 +686,13 @@ export default function UsersPage() {
                           </td>
                           <td className="py-4">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                              ${user.isActive ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'}
+                              ${user.isDeleted 
+                                ? 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400' 
+                                : user.isActive 
+                                  ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' 
+                                  : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'}
                             `}>
-                              {user.isActive ? 'Active' : 'Suspended'}
+                              {user.isDeleted ? 'Deleted' : (user.isActive ? 'Active' : 'Suspended')}
                             </span>
                           </td>
                           <td className="py-4 text-sm">{user.ordersCount || 0}</td>
@@ -596,36 +710,55 @@ export default function UsersPage() {
                               >
                                 <Eye className="h-4 w-4" />
                               </Button>
-                              {user.isActive ? (
+                              {canWarnUsers && !user.isDeleted && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  aria-label={`Suspend ${user.fullName || user.username}`}
-                                  onClick={() => handleSuspendClick(user.id)}
-                                  disabled={isActionLoadingForUser || !isSuperAdmin}
+                                  aria-label={`Warn ${user.fullName || user.username}`}
+                                  onClick={() => handleWarnClick(user.id)}
+                                  disabled={isActionLoadingForUser}
                                 >
                                   {isActionLoadingForUser ? (
                                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-600" aria-hidden="true"></div>
                                   ) : (
-                                    <Ban className="h-4 w-4 text-yellow-600" />
-                                  )}
-                                </Button>
-                              ) : (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  aria-label={`Activate ${user.fullName || user.username}`}
-                                  onClick={() => handleActivateUser(user.id)}
-                                  disabled={isActionLoadingForUser || !isSuperAdmin}
-                                >
-                                  {isActionLoadingForUser ? (
-                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600" aria-hidden="true"></div>
-                                  ) : (
-                                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                    <AlertTriangle className="h-4 w-4 text-yellow-600" />
                                   )}
                                 </Button>
                               )}
-                              {isSuperAdmin && (
+                              {!user.isDeleted && (
+                                <>
+                                  {user.isActive ? (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      aria-label={`Suspend ${user.fullName || user.username}`}
+                                      onClick={() => handleSuspendClick(user.id)}
+                                      disabled={isActionLoadingForUser || !isSuperAdmin}
+                                    >
+                                      {isActionLoadingForUser ? (
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-600" aria-hidden="true"></div>
+                                      ) : (
+                                        <Ban className="h-4 w-4 text-yellow-600" />
+                                      )}
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      aria-label={`Activate ${user.fullName || user.username}`}
+                                      onClick={() => handleActivateUser(user.id)}
+                                      disabled={isActionLoadingForUser || !isSuperAdmin}
+                                    >
+                                      {isActionLoadingForUser ? (
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600" aria-hidden="true"></div>
+                                      ) : (
+                                        <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                      )}
+                                    </Button>
+                                  )}
+                                </>
+                              )}
+                              {isSuperAdmin && !user.isDeleted && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -733,9 +866,13 @@ export default function UsersPage() {
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1">Status</p>
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                    ${selectedUser.isActive ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'}
+                    ${selectedUser.isDeleted 
+                      ? 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400' 
+                      : selectedUser.isActive 
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' 
+                        : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'}
                   `}>
-                    {selectedUser.isActive ? 'Active' : 'Suspended'}
+                    {selectedUser.isDeleted ? 'Deleted' : (selectedUser.isActive ? 'Active' : 'Suspended')}
                   </span>
                 </div>
                 <div>
@@ -750,6 +887,79 @@ export default function UsersPage() {
                     day: 'numeric',
                   })}</p>
                 </div>
+              </div>
+              {/* Warnings Section */}
+              <div className="pt-4 border-t">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="text-sm font-medium">Warnings</p>
+                    <p className="text-xs text-muted-foreground">
+                      {userWarnings.length} {userWarnings.length === 1 ? 'warning' : 'warnings'} issued
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    {canWarnUsers && !selectedUser.isDeleted && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setIsDetailsDialogOpen(false);
+                          setIsWarnDialogOpen(true);
+                        }}
+                      >
+                        <AlertTriangle className="h-4 w-4 mr-2" />
+                        Issue Warning
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setIsDetailsDialogOpen(false);
+                        handleViewWarningsHistory(selectedUser.id);
+                      }}
+                    >
+                      <History className="h-4 w-4 mr-2" />
+                      View History
+                    </Button>
+                  </div>
+                </div>
+                {isLoadingWarnings ? (
+                  <div className="text-sm text-muted-foreground">Loading warnings...</div>
+                ) : userWarnings.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No warnings issued</div>
+                ) : (
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {userWarnings.slice(0, 3).map((warning: any) => (
+                      <div key={warning.id} className="flex items-start gap-2 p-2 rounded-md bg-muted/50">
+                        <AlertTriangle className={`h-4 w-4 mt-0.5 ${
+                          warning.severity === 'high' ? 'text-red-600' :
+                          warning.severity === 'medium' ? 'text-yellow-600' : 'text-blue-600'
+                        }`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded ${
+                              warning.severity === 'high' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
+                              warning.severity === 'medium' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                              'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                            }`}>
+                              {warning.severity}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(warning.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground line-clamp-2">{warning.reason}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {userWarnings.length > 3 && (
+                      <p className="text-xs text-muted-foreground text-center pt-1">
+                        +{userWarnings.length - 3} more warnings
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -805,6 +1015,149 @@ export default function UsersPage() {
               variant="destructive"
             >
               {isActionLoading ? 'Suspending...' : 'Suspend User'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Warn User Dialog */}
+      <Dialog open={isWarnDialogOpen} onOpenChange={setIsWarnDialogOpen}>
+        <DialogContent>
+          <DialogClose onClose={() => {
+            setIsWarnDialogOpen(false);
+            setWarnReason('');
+            setWarnSeverity('medium');
+            setSelectedUser(null);
+          }} />
+          <DialogHeader>
+            <DialogTitle>Issue Warning</DialogTitle>
+            <DialogDescription>
+              Issue a warning to {selectedUser?.fullName || selectedUser?.username}. The user will be notified and this will be recorded in their warning history.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Severity</label>
+              <select
+                value={warnSeverity}
+                onChange={(e) => setWarnSeverity(e.target.value as 'low' | 'medium' | 'high')}
+                className="w-full px-3 py-2 border rounded-md bg-background"
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+              <p className="text-xs text-muted-foreground mt-1">
+                {warnSeverity === 'high' && 'High severity warnings may lead to automatic suspension after 3 warnings.'}
+                {warnSeverity === 'medium' && 'Medium severity warnings may lead to automatic suspension after 5 warnings.'}
+                {warnSeverity === 'low' && 'Low severity warnings may lead to automatic suspension after 10 warnings.'}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Reason <span className="text-destructive">*</span></label>
+              <textarea
+                value={warnReason}
+                onChange={(e) => setWarnReason(e.target.value)}
+                placeholder="Enter reason for warning..."
+                className="w-full px-3 py-2 border rounded-md bg-background min-h-[100px]"
+                rows={4}
+                required
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsWarnDialogOpen(false);
+                setWarnReason('');
+                setWarnSeverity('medium');
+                setSelectedUser(null);
+              }}
+              disabled={isActionLoading !== null}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleWarnUser}
+              disabled={isActionLoading !== null || !warnReason.trim()}
+              variant="default"
+              className="bg-yellow-600 hover:bg-yellow-700"
+            >
+              {isActionLoading ? 'Issuing...' : 'Issue Warning'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Warnings History Dialog */}
+      <Dialog open={isWarningsHistoryOpen} onOpenChange={setIsWarningsHistoryOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh]">
+          <DialogClose onClose={() => {
+            setIsWarningsHistoryOpen(false);
+            setSelectedUser(null);
+          }} />
+          <DialogHeader>
+            <DialogTitle>Warning History</DialogTitle>
+            <DialogDescription>
+              All warnings issued to {selectedUser?.fullName || selectedUser?.username}
+            </DialogDescription>
+          </DialogHeader>
+          {isLoadingWarnings ? (
+            <div className="flex items-center justify-center py-8">
+              <LoadingSpinner />
+            </div>
+          ) : userWarnings.length === 0 ? (
+            <div className="text-center py-8">
+              <AlertTriangle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <p className="text-muted-foreground">No warnings have been issued to this user.</p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+              {userWarnings.map((warning: any) => (
+                <div key={warning.id} className="p-4 rounded-lg border bg-card">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className={`h-5 w-5 ${
+                        warning.severity === 'high' ? 'text-red-600' :
+                        warning.severity === 'medium' ? 'text-yellow-600' : 'text-blue-600'
+                      }`} />
+                      <span className={`text-sm font-medium px-2.5 py-0.5 rounded-full ${
+                        warning.severity === 'high' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
+                        warning.severity === 'medium' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                        'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                      }`}>
+                        {warning.severity.toUpperCase()}
+                      </span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(warning.created_at).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                  <p className="text-sm text-foreground mb-2">{warning.reason}</p>
+                  {warning.warned_by_name && (
+                    <p className="text-xs text-muted-foreground">
+                      Issued by: {warning.warned_by_name}
+                    </p>
+                  )}
+                  {warning.related_content_type && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Related to: {warning.related_content_type}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsWarningsHistoryOpen(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
