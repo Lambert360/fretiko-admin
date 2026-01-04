@@ -15,12 +15,13 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { financeAPI, type RevenueStats, type EscrowHealth, type Payout, type Deposit, type TotalPlatformFunds, type UserBalance } from '@/lib/api/finance';
+import { financeAPI, type RevenueStats, type EscrowHealth, type Payout, type Deposit, type TotalPlatformFunds, type UserBalance, type PlatformWallet, type BankAccount, type CreateBankAccountDto, type UpdateBankAccountDto, type WithdrawRequestDto } from '@/lib/api/finance';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { DollarSign, TrendingUp, Clock, AlertTriangle, Wallet, CreditCard, BarChart3, Calendar, Loader2, Eye, MoreVertical, Search, ArrowDownCircle } from 'lucide-react';
+import { DollarSign, TrendingUp, Clock, AlertTriangle, Wallet, CreditCard, BarChart3, Calendar, Loader2, Eye, MoreVertical, Search, ArrowDownCircle, Building2, Plus, Edit, Trash2, ArrowUpCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import {
   Dialog,
@@ -40,7 +41,7 @@ import {
 export default function FinancePage() {
   const { isSuperAdmin, hasPermission } = useAuth();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<'revenue' | 'escrow' | 'payouts' | 'deposits' | 'user-balances'>('revenue');
+  const [activeTab, setActiveTab] = useState<'revenue' | 'escrow' | 'payouts' | 'deposits' | 'user-balances' | 'platform-wallet'>('revenue');
   const [revenueStats, setRevenueStats] = useState<RevenueStats | null>(null);
   const [escrowHealth, setEscrowHealth] = useState<EscrowHealth | null>(null);
   const [payouts, setPayouts] = useState<Payout[]>([]);
@@ -66,6 +67,28 @@ export default function FinancePage() {
   // Dialog states
   const [payoutDetailsDialog, setPayoutDetailsDialog] = useState<{ open: boolean; payout: Payout | null }>({ open: false, payout: null });
   const [processPayoutDialog, setProcessPayoutDialog] = useState<{ open: boolean; payout: Payout | null }>({ open: false, payout: null });
+  
+  // Platform wallet states
+  const [platformWallet, setPlatformWallet] = useState<PlatformWallet | null>(null);
+  const [platformBankAccounts, setPlatformBankAccounts] = useState<BankAccount[]>([]);
+  const [addBankAccountDialog, setAddBankAccountDialog] = useState(false);
+  const [editBankAccountDialog, setEditBankAccountDialog] = useState<{ open: boolean; account: BankAccount | null }>({ open: false, account: null });
+  const [deleteBankAccountDialog, setDeleteBankAccountDialog] = useState<{ open: boolean; account: BankAccount | null }>({ open: false, account: null });
+  const [withdrawDialog, setWithdrawDialog] = useState(false);
+  const [bankAccountForm, setBankAccountForm] = useState<CreateBankAccountDto>({
+    accountName: '',
+    bankName: '',
+    bankCode: '',
+    accountNumber: '',
+    accountType: 'checking',
+    currency: 'USD',
+    country: 'US',
+    isDefault: false,
+  });
+  const [withdrawForm, setWithdrawForm] = useState<WithdrawRequestDto>({
+    fretiAmount: 0,
+    bankAccountId: '',
+  });
 
   const canViewFinance = isSuperAdmin || hasPermission('view_revenue');
   const canProcessPayouts = isSuperAdmin || hasPermission('process_payouts');
@@ -83,6 +106,9 @@ export default function FinancePage() {
         fetchDeposits();
       } else if (activeTab === 'user-balances') {
         fetchUserBalances();
+      } else if (activeTab === 'platform-wallet') {
+        fetchPlatformWallet();
+        fetchPlatformBankAccounts();
       }
     }
   }, [canViewFinance, activeTab, dateRange, payoutStatusFilter, depositStatusFilter, depositPaymentMethodFilter, depositSearchQuery, userBalanceSearchQuery, page]);
@@ -241,6 +267,161 @@ export default function FinancePage() {
     }
   };
 
+  const fetchPlatformWallet = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const wallet = await financeAPI.getPlatformWallet();
+      setPlatformWallet(wallet);
+    } catch (err: any) {
+      console.error('Failed to fetch platform wallet:', err);
+      const errorMessage = err.response?.data?.message || 'Failed to load platform wallet';
+      setError(errorMessage);
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchPlatformBankAccounts = async () => {
+    try {
+      const accounts = await financeAPI.getPlatformBankAccounts();
+      setPlatformBankAccounts(accounts);
+    } catch (err: any) {
+      console.error('Failed to fetch platform bank accounts:', err);
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to load bank accounts',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleAddBankAccount = async () => {
+    try {
+      setIsActionLoading('add-bank');
+      await financeAPI.addPlatformBankAccount(bankAccountForm);
+      setAddBankAccountDialog(false);
+      setBankAccountForm({
+        accountName: '',
+        bankName: '',
+        bankCode: '',
+        accountNumber: '',
+        accountType: 'checking',
+        currency: 'USD',
+        country: 'US',
+        isDefault: false,
+      });
+      await fetchPlatformBankAccounts();
+      toast({
+        title: 'Success',
+        description: 'Bank account added successfully',
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to add bank account',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsActionLoading(null);
+    }
+  };
+
+  const handleUpdateBankAccount = async () => {
+    if (!editBankAccountDialog.account) return;
+
+    try {
+      setIsActionLoading(editBankAccountDialog.account.id);
+      await financeAPI.updatePlatformBankAccount(editBankAccountDialog.account.id, bankAccountForm);
+      setEditBankAccountDialog({ open: false, account: null });
+      setBankAccountForm({
+        accountName: '',
+        bankName: '',
+        bankCode: '',
+        accountNumber: '',
+        accountType: 'checking',
+        currency: 'USD',
+        country: 'US',
+        isDefault: false,
+      });
+      await fetchPlatformBankAccounts();
+      toast({
+        title: 'Success',
+        description: 'Bank account updated successfully',
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to update bank account',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsActionLoading(null);
+    }
+  };
+
+  const handleDeleteBankAccount = async () => {
+    if (!deleteBankAccountDialog.account) return;
+
+    try {
+      setIsActionLoading(deleteBankAccountDialog.account.id);
+      await financeAPI.deletePlatformBankAccount(deleteBankAccountDialog.account.id);
+      setDeleteBankAccountDialog({ open: false, account: null });
+      await fetchPlatformBankAccounts();
+      toast({
+        title: 'Success',
+        description: 'Bank account deleted successfully',
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to delete bank account',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsActionLoading(null);
+    }
+  };
+
+  const handleWithdraw = async () => {
+    if (!withdrawForm.bankAccountId || withdrawForm.fretiAmount <= 0) {
+      toast({
+        title: 'Error',
+        description: 'Please select a bank account and enter a valid amount',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setIsActionLoading('withdraw');
+      await financeAPI.createPlatformWithdrawal(withdrawForm);
+      setWithdrawDialog(false);
+      setWithdrawForm({
+        fretiAmount: 0,
+        bankAccountId: '',
+      });
+      await fetchPlatformWallet();
+      toast({
+        title: 'Success',
+        description: 'Withdrawal request created successfully',
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to create withdrawal request',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsActionLoading(null);
+    }
+  };
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -371,6 +552,18 @@ export default function FinancePage() {
             }`}
           >
             User Balances
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('platform-wallet');
+            }}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'platform-wallet'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Platform Wallet
           </button>
         </nav>
       </div>
@@ -987,6 +1180,188 @@ export default function FinancePage() {
             </div>
           )}
         </div>
+      ) : activeTab === 'platform-wallet' && platformWallet ? (
+        <div className="space-y-6">
+          {/* Platform Wallet Balance Cards */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Available Balance</CardTitle>
+                <Wallet className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-600">{formatCurrency(platformWallet.wallet.availableBalance)}</div>
+                <p className="text-xs text-muted-foreground">Available to withdraw</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Escrow Balance</CardTitle>
+                <Clock className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-yellow-600">{formatCurrency(platformWallet.wallet.escrowBalance)}</div>
+                <p className="text-xs text-muted-foreground">Held in escrow</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Pending Withdrawal</CardTitle>
+                <ArrowUpCircle className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-blue-600">{formatCurrency(platformWallet.wallet.pendingWithdrawal)}</div>
+                <p className="text-xs text-muted-foreground">Pending requests</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Balance</CardTitle>
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatCurrency(
+                  platformWallet.wallet.availableBalance + 
+                  platformWallet.wallet.escrowBalance + 
+                  platformWallet.wallet.pendingWithdrawal
+                )}</div>
+                <p className="text-xs text-muted-foreground">Total platform funds</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-4">
+            <Button onClick={() => setWithdrawDialog(true)} disabled={platformWallet.wallet.availableBalance <= 0}>
+              <ArrowUpCircle className="h-4 w-4 mr-2" />
+              Withdraw Funds
+            </Button>
+          </div>
+
+          {/* Bank Accounts */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Bank Accounts</CardTitle>
+                  <CardDescription>Manage bank accounts for platform withdrawals</CardDescription>
+                </div>
+                <Button onClick={() => setAddBankAccountDialog(true)} size="sm">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Bank Account
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {platformBankAccounts.length === 0 ? (
+                <div className="text-center py-12">
+                  <Building2 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <p className="text-muted-foreground mb-4">No bank accounts added</p>
+                  <Button onClick={() => setAddBankAccountDialog(true)} variant="outline">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Bank Account
+                  </Button>
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {platformBankAccounts.map((account) => (
+                    <div key={account.id} className="p-4 hover:bg-accent/50 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <h3 className="font-semibold">{account.accountName}</h3>
+                            {account.isDefault && <Badge variant="default">Default</Badge>}
+                            {account.isVerified ? (
+                              <Badge variant="default">Verified</Badge>
+                            ) : (
+                              <Badge variant="outline">Unverified</Badge>
+                            )}
+                            {!account.isActive && <Badge variant="destructive">Inactive</Badge>}
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm text-muted-foreground">
+                            <div>
+                              <span className="font-medium">Bank: </span>
+                              {account.bankName}
+                            </div>
+                            <div>
+                              <span className="font-medium">Account: </span>
+                              {account.accountNumber}
+                            </div>
+                            <div>
+                              <span className="font-medium">Type: </span>
+                              {account.accountType}
+                            </div>
+                            {account.bankCode && (
+                              <div>
+                                <span className="font-medium">Bank Code: </span>
+                                {account.bankCode}
+                              </div>
+                            )}
+                            {account.country && (
+                              <div>
+                                <span className="font-medium">Country: </span>
+                                {account.country}
+                              </div>
+                            )}
+                            {account.currency && (
+                              <div>
+                                <span className="font-medium">Currency: </span>
+                                {account.currency}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setBankAccountForm({
+                                accountName: account.accountName,
+                                bankName: account.bankName,
+                                bankCode: account.bankCode || '',
+                                accountNumber: account.accountNumber,
+                                accountType: account.accountType,
+                                currency: account.currency,
+                                country: account.country,
+                                branchName: account.branchName,
+                                branchCode: account.branchCode,
+                                isDefault: account.isDefault,
+                              });
+                              setEditBankAccountDialog({ open: true, account });
+                            }}
+                            disabled={!account.isActive}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDeleteBankAccountDialog({ open: true, account })}
+                            disabled={isActionLoading === account.id || account.isDefault}
+                          >
+                            {isActionLoading === account.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      ) : activeTab === 'platform-wallet' ? (
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
       ) : null}
 
       {/* Payout Details Dialog */}
@@ -1069,6 +1444,288 @@ export default function FinancePage() {
               disabled={isActionLoading === processPayoutDialog.payout?.id}
             >
               {isActionLoading === processPayoutDialog.payout?.id ? 'Processing...' : 'Process Payout'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Bank Account Dialog */}
+      <Dialog open={addBankAccountDialog} onOpenChange={setAddBankAccountDialog}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add Bank Account</DialogTitle>
+            <DialogDescription>Add a new bank account for platform withdrawals</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="accountName">Account Name</Label>
+              <Input
+                id="accountName"
+                value={bankAccountForm.accountName}
+                onChange={(e) => setBankAccountForm({ ...bankAccountForm, accountName: e.target.value })}
+                placeholder="Account holder name"
+              />
+            </div>
+            <div>
+              <Label htmlFor="bankName">Bank Name</Label>
+              <Input
+                id="bankName"
+                value={bankAccountForm.bankName}
+                onChange={(e) => setBankAccountForm({ ...bankAccountForm, bankName: e.target.value })}
+                placeholder="Bank name"
+              />
+            </div>
+            <div>
+              <Label htmlFor="accountNumber">Account Number</Label>
+              <Input
+                id="accountNumber"
+                value={bankAccountForm.accountNumber}
+                onChange={(e) => setBankAccountForm({ ...bankAccountForm, accountNumber: e.target.value })}
+                placeholder="Account number"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="bankCode">Bank Code</Label>
+                <Input
+                  id="bankCode"
+                  value={bankAccountForm.bankCode}
+                  onChange={(e) => setBankAccountForm({ ...bankAccountForm, bankCode: e.target.value })}
+                  placeholder="Bank code (required for withdrawals)"
+                />
+              </div>
+              <div>
+                <Label htmlFor="accountType">Account Type</Label>
+                <select
+                  id="accountType"
+                  value={bankAccountForm.accountType}
+                  onChange={(e) => setBankAccountForm({ ...bankAccountForm, accountType: e.target.value as any })}
+                  className="w-full px-3 py-2 border rounded-md bg-background"
+                >
+                  <option value="checking">Checking</option>
+                  <option value="savings">Savings</option>
+                  <option value="current">Current</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="currency">Currency</Label>
+                <Input
+                  id="currency"
+                  value={bankAccountForm.currency}
+                  onChange={(e) => setBankAccountForm({ ...bankAccountForm, currency: e.target.value })}
+                  placeholder="USD"
+                />
+              </div>
+              <div>
+                <Label htmlFor="country">Country Code</Label>
+                <Input
+                  id="country"
+                  value={bankAccountForm.country}
+                  onChange={(e) => setBankAccountForm({ ...bankAccountForm, country: e.target.value })}
+                  placeholder="US"
+                />
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="isDefault"
+                checked={bankAccountForm.isDefault}
+                onChange={(e) => setBankAccountForm({ ...bankAccountForm, isDefault: e.target.checked })}
+                className="rounded border-gray-300"
+              />
+              <Label htmlFor="isDefault" className="cursor-pointer">Set as default account</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddBankAccountDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddBankAccount}
+              disabled={isActionLoading === 'add-bank' || !bankAccountForm.accountName || !bankAccountForm.bankName || !bankAccountForm.accountNumber}
+            >
+              {isActionLoading === 'add-bank' ? 'Adding...' : 'Add Bank Account'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Bank Account Dialog */}
+      <Dialog open={editBankAccountDialog.open} onOpenChange={(open) => setEditBankAccountDialog({ open, account: null })}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Bank Account</DialogTitle>
+            <DialogDescription>Update bank account details</DialogDescription>
+          </DialogHeader>
+          {editBankAccountDialog.account && (
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="edit-accountName">Account Name</Label>
+                <Input
+                  id="edit-accountName"
+                  value={bankAccountForm.accountName}
+                  onChange={(e) => setBankAccountForm({ ...bankAccountForm, accountName: e.target.value })}
+                  placeholder="Account holder name"
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit-bankName">Bank Name</Label>
+                <Input
+                  id="edit-bankName"
+                  value={bankAccountForm.bankName}
+                  onChange={(e) => setBankAccountForm({ ...bankAccountForm, bankName: e.target.value })}
+                  placeholder="Bank name"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="edit-bankCode">Bank Code</Label>
+                  <Input
+                    id="edit-bankCode"
+                    value={bankAccountForm.bankCode}
+                    onChange={(e) => setBankAccountForm({ ...bankAccountForm, bankCode: e.target.value })}
+                    placeholder="Bank code"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-accountType">Account Type</Label>
+                  <select
+                    id="edit-accountType"
+                    value={bankAccountForm.accountType}
+                    onChange={(e) => setBankAccountForm({ ...bankAccountForm, accountType: e.target.value as any })}
+                    className="w-full px-3 py-2 border rounded-md bg-background"
+                  >
+                    <option value="checking">Checking</option>
+                    <option value="savings">Savings</option>
+                    <option value="current">Current</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="edit-isDefault"
+                  checked={bankAccountForm.isDefault}
+                  onChange={(e) => setBankAccountForm({ ...bankAccountForm, isDefault: e.target.checked })}
+                  className="rounded border-gray-300"
+                />
+                <Label htmlFor="edit-isDefault" className="cursor-pointer">Set as default account</Label>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditBankAccountDialog({ open: false, account: null })}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleUpdateBankAccount}
+              disabled={isActionLoading === editBankAccountDialog.account?.id}
+            >
+              {isActionLoading === editBankAccountDialog.account?.id ? 'Updating...' : 'Update Bank Account'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Bank Account Dialog */}
+      <Dialog open={deleteBankAccountDialog.open} onOpenChange={(open) => setDeleteBankAccountDialog({ open, account: null })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Bank Account</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this bank account? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteBankAccountDialog.account && (
+            <div className="space-y-4">
+              <div className="text-sm space-y-2">
+                <p><span className="font-medium">Account Name:</span> {deleteBankAccountDialog.account.accountName}</p>
+                <p><span className="font-medium">Bank:</span> {deleteBankAccountDialog.account.bankName}</p>
+                <p><span className="font-medium">Account Number:</span> {deleteBankAccountDialog.account.accountNumber}</p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteBankAccountDialog({ open: false, account: null })}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteBankAccount}
+              disabled={isActionLoading === deleteBankAccountDialog.account?.id}
+            >
+              {isActionLoading === deleteBankAccountDialog.account?.id ? 'Deleting...' : 'Delete Bank Account'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Withdraw Dialog */}
+      <Dialog open={withdrawDialog} onOpenChange={setWithdrawDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Withdraw Platform Funds</DialogTitle>
+            <DialogDescription>Create a withdrawal request to transfer funds to a bank account</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="withdrawAmount">Amount (Freti)</Label>
+              <Input
+                id="withdrawAmount"
+                type="number"
+                step="0.01"
+                min="0.01"
+                max={platformWallet?.wallet.availableBalance || 0}
+                value={withdrawForm.fretiAmount || ''}
+                onChange={(e) => setWithdrawForm({ ...withdrawForm, fretiAmount: parseFloat(e.target.value) || 0 })}
+                placeholder="Enter amount"
+              />
+              {platformWallet && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Available: {formatCurrency(platformWallet.wallet.availableBalance)}
+                </p>
+              )}
+            </div>
+            <div>
+              <Label htmlFor="withdrawBankAccount">Bank Account</Label>
+              <select
+                id="withdrawBankAccount"
+                value={withdrawForm.bankAccountId}
+                onChange={(e) => setWithdrawForm({ ...withdrawForm, bankAccountId: e.target.value })}
+                className="w-full px-3 py-2 border rounded-md bg-background"
+              >
+                <option value="">Select a bank account</option>
+                {platformBankAccounts.filter(acc => acc.isActive && acc.isVerified).map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.accountName} - {account.bankName} ({account.accountNumber}) {account.isDefault && '(Default)'}
+                  </option>
+                ))}
+              </select>
+              {platformBankAccounts.filter(acc => acc.isActive && acc.isVerified).length === 0 && (
+                <p className="text-xs text-destructive mt-1">
+                  No verified bank accounts available. Please add a bank account first.
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWithdrawDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleWithdraw}
+              disabled={
+                isActionLoading === 'withdraw' ||
+                !withdrawForm.bankAccountId ||
+                withdrawForm.fretiAmount <= 0 ||
+                (platformWallet && withdrawForm.fretiAmount > platformWallet.wallet.availableBalance) ||
+                platformBankAccounts.filter(acc => acc.isActive && acc.isVerified).length === 0
+              }
+            >
+              {isActionLoading === 'withdraw' ? 'Creating...' : 'Create Withdrawal Request'}
             </Button>
           </DialogFooter>
         </DialogContent>

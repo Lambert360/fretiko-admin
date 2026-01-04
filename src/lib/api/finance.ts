@@ -114,6 +114,98 @@ export interface UserBalanceListResponse {
   limit: number;
 }
 
+export interface PlatformWallet {
+  wallet: {
+    id: string;
+    userId: string;
+    availableBalance: number;
+    escrowBalance: number;
+    pendingWithdrawal: number;
+    preferredCurrency: string;
+    kycStatus: 'pending' | 'approved' | 'rejected';
+    dailyDepositLimit: number;
+    dailyWithdrawalLimit: number;
+    createdAt: string;
+    updatedAt: string;
+    pendingVendorEarnings?: number;
+    pendingRiderEarnings?: number;
+    totalPendingEarnings?: number;
+    totalVendorSales?: number;
+    totalRiderEarnings?: number;
+    lifetimeRevenue?: number;
+  };
+  platformUserId: string;
+}
+
+export interface BankAccount {
+  id: string;
+  userId: string;
+  accountName: string;
+  bankName: string;
+  bankCode?: string;
+  accountNumber: string;
+  accountType: 'savings' | 'checking' | 'current';
+  currency: string;
+  country?: string;
+  isVerified: boolean;
+  verificationMethod?: string;
+  verifiedAt?: string;
+  isDefault: boolean;
+  swiftCode?: string;
+  iban?: string;
+  routingNumber?: string;
+  branchName?: string;
+  branchCode?: string;
+  isActive: boolean;
+  metadata?: any;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateBankAccountDto {
+  accountName: string;
+  bankName: string;
+  bankCode?: string;
+  accountNumber: string;
+  accountType?: 'savings' | 'checking' | 'current';
+  currency?: string;
+  country?: string;
+  swiftCode?: string;
+  iban?: string;
+  routingNumber?: string;
+  branchName?: string;
+  branchCode?: string;
+  isDefault?: boolean;
+}
+
+export interface UpdateBankAccountDto {
+  accountName?: string;
+  bankName?: string;
+  bankCode?: string;
+  accountType?: 'savings' | 'checking' | 'current';
+  branchName?: string;
+  branchCode?: string;
+  isDefault?: boolean;
+}
+
+export interface WithdrawRequestDto {
+  fretiAmount: number;
+  bankAccountId: string;
+  localCurrency?: string;
+  idempotencyKey?: string;
+}
+
+export interface PayoutRequestResponse {
+  id: string;
+  userId: string;
+  amount: number;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  requestedAt: string;
+  processedAt?: string;
+  bankAccountId: string;
+  paymentMethod: string;
+}
+
 export const financeAPI = {
   /**
    * Get platform revenue analytics
@@ -202,6 +294,54 @@ export const financeAPI = {
     if (filters?.limit) params.append('limit', filters.limit.toString());
 
     return apiClient.get<UserBalanceListResponse>(`/admin/finance/user-balances${params.toString() ? `?${params.toString()}` : ''}`);
+  },
+
+  /**
+   * Get platform wallet balance
+   * GET /admin/platform/wallet
+   */
+  getPlatformWallet: async (): Promise<PlatformWallet> => {
+    return apiClient.get<PlatformWallet>('/admin/platform/wallet');
+  },
+
+  /**
+   * Get platform bank accounts
+   * GET /admin/platform/bank-accounts
+   */
+  getPlatformBankAccounts: async (): Promise<BankAccount[]> => {
+    return apiClient.get<BankAccount[]>('/admin/platform/bank-accounts');
+  },
+
+  /**
+   * Add bank account for platform user
+   * POST /admin/platform/bank-accounts
+   */
+  addPlatformBankAccount: async (dto: CreateBankAccountDto): Promise<BankAccount> => {
+    return apiClient.post<BankAccount>('/admin/platform/bank-accounts', dto);
+  },
+
+  /**
+   * Update platform bank account
+   * PUT /admin/platform/bank-accounts/:accountId
+   */
+  updatePlatformBankAccount: async (accountId: string, dto: UpdateBankAccountDto): Promise<BankAccount> => {
+    return apiClient.put<BankAccount>(`/admin/platform/bank-accounts/${accountId}`, dto);
+  },
+
+  /**
+   * Delete platform bank account
+   * DELETE /admin/platform/bank-accounts/:accountId
+   */
+  deletePlatformBankAccount: async (accountId: string): Promise<{ success: boolean; message: string }> => {
+    return apiClient.delete<{ success: boolean; message: string }>(`/admin/platform/bank-accounts/${accountId}`);
+  },
+
+  /**
+   * Create withdrawal request for platform wallet
+   * POST /admin/platform/withdraw
+   */
+  createPlatformWithdrawal: async (dto: WithdrawRequestDto): Promise<PayoutRequestResponse> => {
+    return apiClient.post<PayoutRequestResponse>('/admin/platform/withdraw', dto);
   },
 };
 
