@@ -16,6 +16,8 @@ export interface RevenueStats {
     auction: number;
     service_booking: number;
     invoice: number;
+    wishlist: number;
+    logistics: number;
   };
   topVendors: Array<{
     vendorId: string;
@@ -40,14 +42,24 @@ export interface EscrowHealth {
 
 export interface Payout {
   id: string;
-  vendorId: string;
-  vendorName: string;
-  amount: number;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  requestedAt: string;
-  processedAt?: string;
-  paymentMethod: string;
-  accountDetails?: string;
+  user_id: string;
+  freti_amount: number;
+  estimated_local_amount?: number;
+  local_currency: string;
+  status: 'requested' | 'pending' | 'processing' | 'completed' | 'paid' | 'failed';
+  external_payout_id?: string;
+  requested_at: string;
+  processed_at?: string;
+  paid_at?: string;
+  failure_reason?: string;
+  retry_count: number;
+  created_at: string;
+  updated_at: string;
+  user: {
+    id: string;
+    username: string;
+    email: string;
+  };
 }
 
 export interface PayoutListResponse {
@@ -206,6 +218,39 @@ export interface PayoutRequestResponse {
   paymentMethod: string;
 }
 
+export interface PlatformWithdrawal {
+  id: string;
+  freti_amount: number;
+  estimated_local_amount?: number;
+  local_currency: string;
+  status: 'requested' | 'pending' | 'processing' | 'completed' | 'paid' | 'failed';
+  external_payout_id?: string;
+  requested_at: string;
+  processed_at?: string;
+  paid_at?: string;
+  failure_reason?: string;
+  retry_count: number;
+  created_at: string;
+  bank_account_id: string;
+  bankAccount?: {
+    accountName: string;
+    bankName: string;
+    accountNumber: string;
+    currency: string;
+  } | null;
+}
+
+export interface PaginatedPlatformWithdrawals {
+  data: PlatformWithdrawal[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasMore: boolean;
+  };
+}
+
 export const financeAPI = {
   /**
    * Get platform revenue analytics
@@ -342,6 +387,18 @@ export const financeAPI = {
    */
   createPlatformWithdrawal: async (dto: WithdrawRequestDto): Promise<PayoutRequestResponse> => {
     return apiClient.post<PayoutRequestResponse>('/admin/platform/withdraw', dto);
+  },
+
+  /**
+   * Get platform withdrawal history with pagination
+   * GET /admin/platform/withdrawals?page=1&limit=50
+   */
+  getPlatformWithdrawals: async (page: number = 1, limit: number = 50): Promise<PaginatedPlatformWithdrawals> => {
+    const params = new URLSearchParams();
+    params.append('page', page.toString());
+    params.append('limit', limit.toString());
+    
+    return apiClient.get<PaginatedPlatformWithdrawals>(`/admin/platform/withdrawals?${params.toString()}`);
   },
 };
 

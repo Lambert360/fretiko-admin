@@ -72,6 +72,13 @@ export default function UsersPage() {
   const canViewUsers = isSuperAdmin || hasPermission('view_users');
   const canWarnUsers = isSuperAdmin || hasPermission('suspend_users');
 
+  // Validate and correct page number
+  useEffect(() => {
+    if (total > 0 && page > Math.ceil(total / limit)) {
+      setPage(Math.max(1, Math.ceil(total / limit)));
+    }
+  }, [total, page, limit]);
+
   const fetchStats = async () => {
     try {
       const statsData = await usersAPI.getUserStats();

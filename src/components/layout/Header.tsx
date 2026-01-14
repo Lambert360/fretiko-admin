@@ -4,8 +4,9 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSidebar } from '@/contexts/SidebarContext';
 import { Button } from '@/components/ui/button';
+import { NotificationBell } from './NotificationBell';
 import { cn } from '@/lib/utils';
-import { Bell, LogOut, User, Menu } from 'lucide-react';
+import { LogOut, User, Menu } from 'lucide-react';
 
 export function Header() {
   const { staff, logout } = useAuth();
@@ -43,11 +44,8 @@ export function Header() {
 
         {/* Right side - Notifications and Profile */}
         <div className="flex items-center gap-4">
-          {/* Notifications */}
-          <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
-            <Bell className="h-5 w-5" />
-            <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full" aria-hidden="true"></span>
-          </Button>
+          {/* Real-time Notifications */}
+          <NotificationBell />
 
           {/* Profile Dropdown */}
           <div className="flex items-center gap-3 border-l pl-4 border-gray-200 dark:border-gray-700">

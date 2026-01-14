@@ -4,14 +4,15 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { dashboardAPI, type DashboardOverview } from '@/lib/api/dashboard';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { 
-  Users, 
-  ShoppingCart, 
-  MessageSquare, 
-  DollarSign, 
-  TrendingUp, 
+import {
+  Users,
+  ShoppingCart,
+  MessageSquare,
+  DollarSign,
+  TrendingUp,
   AlertCircle,
   Package,
   Truck,
@@ -21,6 +22,7 @@ import {
   Mail,
   ClipboardList
 } from 'lucide-react';
+import { LoadingPage } from '@/components/ui/loading';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -93,7 +95,8 @@ export default function DashboardPage() {
       bgColor: 'bg-yellow-50',
       isPositive: dashboardData.stats.disputeChange <= 0, // Negative change is good for disputes
     },
-    {
+    // Only show revenue to users with view_revenue permission or super admins
+    ...(isSuperAdmin || hasPermission('view_revenue') ? [{
       title: 'Revenue',
       value: formatCurrency(dashboardData.stats.revenue),
       change: formatChange(dashboardData.stats.revenueChange),
@@ -101,7 +104,7 @@ export default function DashboardPage() {
       color: 'text-purple-600',
       bgColor: 'bg-purple-50',
       isPositive: dashboardData.stats.revenueChange >= 0,
-    },
+    }] : []),
   ] : [];
 
   const recentActivities = dashboardData?.recentActivities || [];
@@ -210,19 +213,27 @@ export default function DashboardPage() {
       bgColor: 'bg-gray-50 dark:bg-gray-900/20',
     },
   ].filter(action => {
+    // Super admins see all actions
+    if (isSuperAdmin) {
+      return true;
+    }
+    
     // Filter by permission
     if (action.permission && !hasPermission(action.permission)) {
       return false;
     }
-    // Filter by role if specified
+    
+    // Filter by role if specified (in addition to permission check)
     if (action.roles && staff) {
       return action.roles.includes(staff.role);
     }
+    
     return true;
   });
 
   return (
-    <div className="space-y-6">
+    <ErrorBoundary>
+      <div className="space-y-6">
       {/* Page Header */}
       <div>
         <h2 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
@@ -242,9 +253,7 @@ export default function DashboardPage() {
 
       {/* Loading State */}
       {isLoading ? (
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-        </div>
+        <LoadingPage message="Loading dashboard data..." />
       ) : (
         <>
           {/* Stats Grid */}
@@ -374,6 +383,7 @@ export default function DashboardPage() {
           )}
         </>
       )}
-    </div>
+      </div>
+    </ErrorBoundary>
   );
 }

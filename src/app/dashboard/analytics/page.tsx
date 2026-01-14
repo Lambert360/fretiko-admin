@@ -16,11 +16,12 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { analyticsAPI, type PlatformStats, type AnalyticsSummary, type TimeSeriesData } from '@/lib/api/analytics';
+import { InfoAlert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LineChart } from '@/components/charts/LineChart';
 import { EmptyState } from '@/components/ui/empty-state';
-import { BarChart3, TrendingUp, Users, ShoppingCart, DollarSign, AlertCircle, Calendar } from 'lucide-react';
+import { BarChart3, TrendingUp, Users, ShoppingCart, DollarSign, AlertCircle, Calendar, Info } from 'lucide-react';
 import { formatCurrency, formatNumber } from '@/lib/utils/formatting';
 
 export default function AnalyticsPage() {
@@ -32,11 +33,12 @@ export default function AnalyticsPage() {
   const [error, setError] = useState<string | null>(null);
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
-    start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    end: new Date().toISOString().split('T')[0],
+    start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA'),
+    end: new Date().toLocaleDateString('en-CA'),
   });
 
   const canViewAnalytics = isSuperAdmin || hasPermission('view_platform_stats');
+  const canViewRevenue = isSuperAdmin || hasPermission('view_revenue');
 
   useEffect(() => {
     if (canViewAnalytics) {
@@ -53,7 +55,7 @@ export default function AnalyticsPage() {
       const [stats, summary, timeSeries] = await Promise.all([
         analyticsAPI.getPlatformStats(),
         analyticsAPI.getAnalyticsSummary(),
-        analyticsAPI.getTimeSeries(dateRange.start, dateRange.end, period),
+        analyticsAPI.getTimeSeries(dateRange.start, dateRange.end, period, new Date().getTimezoneOffset()),
       ]);
 
       setPlatformStats(stats);
@@ -133,6 +135,16 @@ export default function AnalyticsPage() {
         </div>
       )}
 
+      {/* Timing Explanation - Only show if user can see revenue */}
+      {canViewRevenue && (
+        <InfoAlert>
+          <AlertDescription>
+            <strong>Order vs Revenue Timing:</strong> Orders are counted when customers place them (business activity).
+            Revenue is counted when escrows are released (profit realization), which may occur 1-3 days later due to payment processing.
+          </AlertDescription>
+        </InfoAlert>
+      )}
+
       {/* Loading State */}
       {isLoading ? (
         <div className="flex items-center justify-center h-64">
@@ -171,16 +183,19 @@ export default function AnalyticsPage() {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-                  <DollarSign className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{formatCurrency(platformStats.totalRevenue)}</div>
-                  <p className="text-xs text-muted-foreground mt-1">Platform revenue</p>
-                </CardContent>
-              </Card>
+              {/* Total Revenue Card - Finance Only */}
+              {canViewRevenue && (
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+                    <DollarSign className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{formatCurrency(platformStats.totalRevenue)}</div>
+                    <p className="text-xs text-muted-foreground mt-1">Platform revenue</p>
+                  </CardContent>
+                </Card>
+              )}
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -196,48 +211,58 @@ export default function AnalyticsPage() {
           )}
 
           {/* Charts Row */}
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Revenue Trend</CardTitle>
-                <CardDescription>Revenue over time</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {timeSeriesData.length === 0 ? (
-                  <EmptyState
-                    icon={BarChart3}
-                    title="No revenue data"
-                    description="Revenue data will appear here once orders are completed"
-                  />
-                ) : (
-                  <LineChart
-                    data={timeSeriesData.slice(-30) as Array<{ date: string; [key: string]: string | number }>}
-                    dataKeys={[
-                      { key: 'revenue', name: 'Revenue', color: '#3b82f6' },
-                    ]}
-                    formatYAxis="currency"
-                    height={250}
-                    showLegend={false}
-                  />
-                )}
-              </CardContent>
-            </Card>
+          <div className="grid gap-4 md:grid-cols-1">
+            {/* Revenue Trend Chart - Finance Only */}
+            {canViewRevenue && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    Revenue Trend
+                    <Info className="h-4 w-4 text-muted-foreground" />
+                  </CardTitle>
+                  <CardDescription>Revenue realized when escrows are released (profit timeline)</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {timeSeriesData.length === 0 ? (
+                    <EmptyState
+                      icon={BarChart3}
+                      title="No revenue data"
+                      description="Revenue data will appear here once escrows are released (may lag behind order completion)"
+                    />
+                  ) : (
+                    <LineChart
+                      data={timeSeriesData as Array<{ date: string; [key: string]: string | number }>}
+                      dataKeys={[
+                        { key: 'revenue', name: 'Revenue', color: '#3b82f6' },
+                      ]}
+                      formatYAxis="currency"
+                      height={250}
+                      showLegend={false}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
+            {/* Orders Trend Chart - Always Visible */}
             <Card>
               <CardHeader>
-                <CardTitle>Orders Trend</CardTitle>
-                <CardDescription>Orders over time</CardDescription>
+                <CardTitle className="flex items-center gap-2">
+                  Orders Trend
+                  <Info className="h-4 w-4 text-muted-foreground" />
+                </CardTitle>
+                <CardDescription>Orders created by customers (business activity timeline)</CardDescription>
               </CardHeader>
               <CardContent>
                 {timeSeriesData.length === 0 ? (
                   <EmptyState
                     icon={ShoppingCart}
                     title="No order data"
-                    description="Order data will appear here once orders are created"
+                    description="Order data will appear here once customers place orders"
                   />
                 ) : (
                   <LineChart
-                    data={timeSeriesData.slice(-30) as Array<{ date: string; [key: string]: string | number }>}
+                    data={timeSeriesData as Array<{ date: string; [key: string]: string | number }>}
                     dataKeys={[
                       { key: 'orders', name: 'Orders', color: '#10b981' },
                     ]}
@@ -271,13 +296,15 @@ export default function AnalyticsPage() {
                             <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold">
                               {index + 1}
                             </div>
-                            <div>
-                              <p className="font-medium capitalize">{category.category || 'Uncategorized'}</p>
-                              <p className="text-sm text-muted-foreground">{category.orderCount || 0} orders</p>
-                            </div>
+                          <div>
+                            <p className="font-medium capitalize">{category.category || 'Uncategorized'}</p>
+                            <p className="text-sm text-muted-foreground">{category.orderCount || 0} orders</p>
                           </div>
-                          <span className="font-bold">{formatCurrency(category.revenue || 0)}</span>
                         </div>
+                        {canViewRevenue && (
+                          <span className="font-bold">{formatCurrency(category.revenue || 0)}</span>
+                        )}
+                      </div>
                       ))}
                     </div>
                   )}
@@ -302,7 +329,9 @@ export default function AnalyticsPage() {
                             <p className="text-sm text-muted-foreground">{vendor.orderCount} orders</p>
                           </div>
                         </div>
-                        <span className="font-bold">{formatCurrency(vendor.revenue)}</span>
+                        {canViewRevenue && (
+                          <span className="font-bold">{formatCurrency(vendor.revenue)}</span>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -319,23 +348,27 @@ export default function AnalyticsPage() {
                 <CardDescription>Platform performance indicators</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className={`grid gap-4 ${canViewRevenue ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2'}`}>
                   <div className="text-center p-4 border rounded-lg">
                     <div className="text-2xl font-bold">{formatNumber(analyticsSummary.totalOrders)}</div>
                     <div className="text-sm text-muted-foreground mt-1">Total Orders</div>
                   </div>
-                  <div className="text-center p-4 border rounded-lg">
-                    <div className="text-2xl font-bold">{formatCurrency(analyticsSummary.totalRevenue)}</div>
-                    <div className="text-sm text-muted-foreground mt-1">Total Revenue</div>
-                  </div>
+                  {canViewRevenue && (
+                    <div className="text-center p-4 border rounded-lg">
+                      <div className="text-2xl font-bold">{formatCurrency(analyticsSummary.totalRevenue)}</div>
+                      <div className="text-sm text-muted-foreground mt-1">Total Revenue</div>
+                    </div>
+                  )}
                   <div className="text-center p-4 border rounded-lg">
                     <div className="text-2xl font-bold">{formatNumber(analyticsSummary.totalUsers)}</div>
                     <div className="text-sm text-muted-foreground mt-1">Total Users</div>
                   </div>
-                  <div className="text-center p-4 border rounded-lg">
-                    <div className="text-2xl font-bold">{formatCurrency(analyticsSummary.averageOrderValue)}</div>
-                    <div className="text-sm text-muted-foreground mt-1">Avg Order Value</div>
-                  </div>
+                  {canViewRevenue && (
+                    <div className="text-center p-4 border rounded-lg">
+                      <div className="text-2xl font-bold">{formatCurrency(analyticsSummary.averageOrderValue)}</div>
+                      <div className="text-sm text-muted-foreground mt-1">Avg Order Value</div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

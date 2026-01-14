@@ -55,6 +55,13 @@ export default function OrdersPage() {
 
   const canViewOrders = isSuperAdmin || hasPermission('view_orders');
 
+  // Validate and correct page number
+  useEffect(() => {
+    if (total > 0 && page > Math.ceil(total / limit)) {
+      setPage(Math.max(1, Math.ceil(total / limit)));
+    }
+  }, [total, page, limit]);
+
   useEffect(() => {
     if (canViewOrders) {
       fetchStats();

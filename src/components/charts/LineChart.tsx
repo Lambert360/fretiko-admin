@@ -40,7 +40,8 @@ export function LineChart({
 }: LineChartProps) {
   const formatYAxisValue = (value: number) => {
     if (formatYAxis === 'currency') {
-      return formatCurrency(value, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+      // Show up to 2 decimal places on Y-axis for better readability
+      return formatCurrency(value, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
     }
     return formatNumber(value);
   };
@@ -48,6 +49,7 @@ export function LineChart({
   const formatTooltipValue = (value: number, name: string) => {
     const dataKey = dataKeys.find(dk => dk.key === name);
     if (formatYAxis === 'currency') {
+      // Show full precision in tooltip (2 decimal places)
       return [formatCurrency(value), dataKey?.name || name];
     }
     return [formatNumber(value), dataKey?.name || name];

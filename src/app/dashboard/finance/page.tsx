@@ -1,25 +1,28 @@
+/** @jsxImportSource react */
 'use client';
 
 /**
  * Finance Management Page
- * 
+ *
  * Revenue tracking and financial analytics
  * Features:
  * - Platform revenue overview
  * - Escrow health monitoring
  * - Payout management
  * - Revenue by source breakdown
- * 
+ *
  * Requires: view_revenue permission
  */
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { financeAPI, type RevenueStats, type EscrowHealth, type Payout, type Deposit, type TotalPlatformFunds, type UserBalance, type PlatformWallet, type BankAccount, type CreateBankAccountDto, type UpdateBankAccountDto, type WithdrawRequestDto } from '@/lib/api/finance';
+import { financeAPI, type RevenueStats, type EscrowHealth, type Payout, type Deposit, type TotalPlatformFunds, type UserBalance, type PlatformWallet, type BankAccount, type CreateBankAccountDto, type UpdateBankAccountDto, type WithdrawRequestDto, type PlatformWithdrawal } from '@/lib/api/finance';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DollarSign, TrendingUp, Clock, AlertTriangle, Wallet, CreditCard, BarChart3, Calendar, Loader2, Eye, MoreVertical, Search, ArrowDownCircle, Building2, Plus, Edit, Trash2, ArrowUpCircle } from 'lucide-react';
+import { LoadingPage, LoadingSpinner } from '@/components/ui/loading';
+import { formatDateTime, formatCurrency } from '@/lib/utils/formatting';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
@@ -38,7 +41,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-export default function FinancePage() {
+const FinancePage = () => {
   const { isSuperAdmin, hasPermission } = useAuth();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<'revenue' | 'escrow' | 'payouts' | 'deposits' | 'user-balances' | 'platform-wallet'>('revenue');
@@ -53,10 +56,10 @@ export default function FinancePage() {
   const [isActionLoading, setIsActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
-    start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    end: new Date().toISOString().split('T')[0],
+    start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA'),
+    end: new Date().toLocaleDateString('en-CA'),
   });
-  const [payoutStatusFilter, setPayoutStatusFilter] = useState<'all' | Payout['status']>('all');
+  const [payoutStatusFilter, setPayoutStatusFilter] = useState<'all' | 'requested' | 'pending' | 'processing' | 'completed' | 'paid' | 'failed'>('all');
   const [depositStatusFilter, setDepositStatusFilter] = useState<'all' | Deposit['status']>('all');
   const [depositPaymentMethodFilter, setDepositPaymentMethodFilter] = useState<string>('all');
   const [depositSearchQuery, setDepositSearchQuery] = useState('');
@@ -67,10 +70,18 @@ export default function FinancePage() {
   // Dialog states
   const [payoutDetailsDialog, setPayoutDetailsDialog] = useState<{ open: boolean; payout: Payout | null }>({ open: false, payout: null });
   const [processPayoutDialog, setProcessPayoutDialog] = useState<{ open: boolean; payout: Payout | null }>({ open: false, payout: null });
-  
+
   // Platform wallet states
   const [platformWallet, setPlatformWallet] = useState<PlatformWallet | null>(null);
   const [platformBankAccounts, setPlatformBankAccounts] = useState<BankAccount[]>([]);
+  const [platformWithdrawals, setPlatformWithdrawals] = useState<PlatformWithdrawal[]>([]);
+  const [withdrawalPagination, setWithdrawalPagination] = useState({
+    page: 1,
+    limit: 50,
+    total: 0,
+    hasMore: false,
+  });
+  const [loadingMoreWithdrawals, setLoadingMoreWithdrawals] = useState(false);
   const [addBankAccountDialog, setAddBankAccountDialog] = useState(false);
   const [editBankAccountDialog, setEditBankAccountDialog] = useState<{ open: boolean; account: BankAccount | null }>({ open: false, account: null });
   const [deleteBankAccountDialog, setDeleteBankAccountDialog] = useState<{ open: boolean; account: BankAccount | null }>({ open: false, account: null });
@@ -91,7 +102,6 @@ export default function FinancePage() {
   });
 
   const canViewFinance = isSuperAdmin || hasPermission('view_revenue');
-  const canProcessPayouts = isSuperAdmin || hasPermission('process_payouts');
 
   useEffect(() => {
     if (canViewFinance) {
@@ -109,6 +119,7 @@ export default function FinancePage() {
       } else if (activeTab === 'platform-wallet') {
         fetchPlatformWallet();
         fetchPlatformBankAccounts();
+        fetchPlatformWithdrawals();
       }
     }
   }, [canViewFinance, activeTab, dateRange, payoutStatusFilter, depositStatusFilter, depositPaymentMethodFilter, depositSearchQuery, userBalanceSearchQuery, page]);
@@ -158,7 +169,7 @@ export default function FinancePage() {
       setIsLoading(true);
       setError(null);
       const response = await financeAPI.getPayouts({
-        status: payoutStatusFilter !== 'all' ? payoutStatusFilter : undefined,
+        status: payoutStatusFilter !== 'all' ? (payoutStatusFilter as any) : undefined,
         page,
         limit,
       });
@@ -248,7 +259,7 @@ export default function FinancePage() {
     if (!processPayoutDialog.payout) return;
 
     try {
-      setIsActionLoading(processPayoutDialog.payout.id);
+      setIsActionLoading((processPayoutDialog.payout as any).id);
       await financeAPI.processPayout(processPayoutDialog.payout.id);
       setProcessPayoutDialog({ open: false, payout: null });
       await fetchPayouts();
@@ -299,6 +310,42 @@ export default function FinancePage() {
         variant: 'destructive',
       });
     }
+  };
+
+  const fetchPlatformWithdrawals = async (page: number = 1) => {
+    try {
+      const response = await financeAPI.getPlatformWithdrawals(page, 50);
+
+      if (page === 1) {
+        // First page - replace data
+        setPlatformWithdrawals(response.data);
+      } else {
+        // Load more - append data
+        setPlatformWithdrawals(prev => [...prev, ...response.data]);
+      }
+
+      setWithdrawalPagination({
+        page: response.pagination.page,
+        limit: response.pagination.limit,
+        total: response.pagination.total,
+        hasMore: response.pagination.hasMore,
+      });
+    } catch (err: any) {
+      console.error('Failed to fetch platform withdrawals:', err);
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to load withdrawal history',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleLoadMoreWithdrawals = async () => {
+    if (!withdrawalPagination.hasMore || loadingMoreWithdrawals) return;
+
+    setLoadingMoreWithdrawals(true);
+    await fetchPlatformWithdrawals(withdrawalPagination.page + 1);
+    setLoadingMoreWithdrawals(false);
   };
 
   const handleAddBankAccount = async () => {
@@ -407,6 +454,7 @@ export default function FinancePage() {
         bankAccountId: '',
       });
       await fetchPlatformWallet();
+      await fetchPlatformWithdrawals();
       toast({
         title: 'Success',
         description: 'Withdrawal request created successfully',
@@ -437,12 +485,14 @@ export default function FinancePage() {
 
   const getStatusBadge = (status: Payout['status']) => {
     const variants: Record<Payout['status'], { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
+      requested: { variant: 'outline', label: 'Requested' },
       pending: { variant: 'outline', label: 'Pending' },
       processing: { variant: 'secondary', label: 'Processing' },
       completed: { variant: 'default', label: 'Completed' },
+      paid: { variant: 'default', label: 'Paid' },
       failed: { variant: 'destructive', label: 'Failed' },
     };
-    const config = variants[status];
+    const config = variants[status] || variants['requested']; // Fallback for unknown statuses
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
@@ -483,13 +533,49 @@ export default function FinancePage() {
     );
   }
 
+  if (isLoading && !revenueStats && !escrowHealth && !payouts.length && !deposits.length && !userBalances.length && !platformWallet) {
+    return <LoadingPage />;
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Finance Management</h1>
-        <p className="text-muted-foreground mt-1">Track revenue, escrow health, and payouts</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Finance Management</h1>
+          <p className="text-muted-foreground mt-1">Track revenue, escrow health, and payouts</p>
+        </div>
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <Calendar className="h-4 w-4" />
+            <Input
+              type="date"
+              value={dateRange.start}
+              onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+              className="w-32"
+            />
+            <span className="text-sm text-muted-foreground">to</span>
+            <Input
+              type="date"
+              value={dateRange.end}
+              onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+              className="w-32"
+            />
+          </div>
+        </div>
       </div>
+
+      {/* Error State */}
+      {error && (
+        <Card className="border-destructive">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              <p className="text-destructive">{error}</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tabs */}
       <div className="border-b">
@@ -554,9 +640,7 @@ export default function FinancePage() {
             User Balances
           </button>
           <button
-            onClick={() => {
-              setActiveTab('platform-wallet');
-            }}
+            onClick={() => setActiveTab('platform-wallet')}
             className={`py-4 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'platform-wallet'
                 ? 'border-primary text-primary'
@@ -568,788 +652,763 @@ export default function FinancePage() {
         </nav>
       </div>
 
-      {/* Date Range Selector for Revenue */}
+      {/* Tab Content */}
       {activeTab === 'revenue' && (
-        <div className="flex gap-4 items-end">
-          <div>
-            <label className="text-sm font-medium mb-1 block">Start Date</label>
-            <input
-              type="date"
-              value={dateRange.start}
-              onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-              className="px-3 py-2 border rounded-md bg-background"
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium mb-1 block">End Date</label>
-            <input
-              type="date"
-              value={dateRange.end}
-              onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-              className="px-3 py-2 border rounded-md bg-background"
-            />
-          </div>
-          <Button onClick={fetchRevenue}>
-            <Calendar className="h-4 w-4 mr-2" />
-            Apply
-          </Button>
-        </div>
-      )}
-
-      {/* Error Message */}
-      {error && (
-        <div className="bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-md">
-          {error}
-        </div>
-      )}
-
-      {/* Content */}
-      {isLoading ? (
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      ) : activeTab === 'revenue' && revenueStats ? (
         <div className="space-y-6">
-          {/* Revenue Overview Cards */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Platform Fees</CardTitle>
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(revenueStats.totalPlatformFees)}</div>
-                <p className="text-xs text-muted-foreground">All time</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Realized Revenue</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-600">{formatCurrency(revenueStats.realizedRevenue)}</div>
-                <p className="text-xs text-muted-foreground">Released escrows</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Pending Revenue</CardTitle>
-                <Clock className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-yellow-600">{formatCurrency(revenueStats.pendingRevenue)}</div>
-                <p className="text-xs text-muted-foreground">In escrow</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Lost Revenue</CardTitle>
-                <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-red-600">{formatCurrency(revenueStats.lostRevenue)}</div>
-                <p className="text-xs text-muted-foreground">Refunded</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Revenue by Source */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Revenue by Source</CardTitle>
-              <CardDescription>Platform fees breakdown by order source</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {Object.entries(revenueStats.revenueBySource).map(([source, amount]) => (
-                  <div key={source} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <BarChart3 className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium capitalize">{source.replace('_', ' ')}</span>
-                    </div>
-                    <span className="font-bold">{formatCurrency(amount)}</span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Top Vendors */}
-          {revenueStats.topVendors.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Top Vendors by Fees</CardTitle>
-                <CardDescription>Vendors contributing most to platform revenue</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {revenueStats.topVendors.slice(0, 10).map((vendor, index) => (
-                    <div key={vendor.vendorId} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold">
-                          {index + 1}
-                        </div>
-                        <div>
-                          <p className="font-medium">{vendor.vendorName}</p>
-                          <p className="text-sm text-muted-foreground">{vendor.orderCount} orders</p>
-                        </div>
-                      </div>
-                      <span className="font-bold">{formatCurrency(vendor.totalFees)}</span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      ) : activeTab === 'escrow' && escrowHealth ? (
-        <div className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total in Escrow</CardTitle>
-                <Wallet className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(escrowHealth.totalInEscrow)}</div>
-                <p className="text-xs text-muted-foreground">Currently held</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Overdue Escrows</CardTitle>
-                <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-red-600">{escrowHealth.overdueEscrows}</div>
-                <p className="text-xs text-muted-foreground">Requires attention</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Dispute Rate</CardTitle>
-                <BarChart3 className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{escrowHealth.disputeRate.toFixed(2)}%</div>
-                <p className="text-xs text-muted-foreground">Of total escrows</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Avg Hold Time</CardTitle>
-                <Clock className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{escrowHealth.averageHoldTime.toFixed(1)}h</div>
-                <p className="text-xs text-muted-foreground">Before release</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Escrows by Status</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center p-4 border rounded-lg">
-                  <div className="text-2xl font-bold">{escrowHealth.escrowsByStatus.held}</div>
-                  <div className="text-sm text-muted-foreground">Held</div>
-                </div>
-                <div className="text-center p-4 border rounded-lg">
-                  <div className="text-2xl font-bold text-green-600">{escrowHealth.escrowsByStatus.released}</div>
-                  <div className="text-sm text-muted-foreground">Released</div>
-                </div>
-                <div className="text-center p-4 border rounded-lg">
-                  <div className="text-2xl font-bold text-red-600">{escrowHealth.escrowsByStatus.refunded}</div>
-                  <div className="text-sm text-muted-foreground">Refunded</div>
-                </div>
-                <div className="text-center p-4 border rounded-lg">
-                  <div className="text-2xl font-bold text-yellow-600">{escrowHealth.escrowsByStatus.disputed}</div>
-                  <div className="text-sm text-muted-foreground">Disputed</div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      ) : activeTab === 'payouts' ? (
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <h2 className="text-xl font-semibold">Payouts</h2>
-              <p className="text-sm text-muted-foreground">Manage vendor payouts</p>
-            </div>
-            <select
-              value={payoutStatusFilter}
-              onChange={(e) => {
-                setPayoutStatusFilter(e.target.value as any);
-                setPage(1);
-              }}
-              className="px-3 py-2 border rounded-md bg-background"
-            >
-              <option value="all">All Status</option>
-              <option value="pending">Pending</option>
-              <option value="processing">Processing</option>
-              <option value="completed">Completed</option>
-              <option value="failed">Failed</option>
-            </select>
-          </div>
-
-          <Card>
-            <CardContent className="p-0">
-              {payouts.length === 0 ? (
-                <div className="text-center py-12">
-                  <CreditCard className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground">No payouts found</p>
-                </div>
-              ) : (
-                <div className="divide-y">
-                  {payouts.map((payout) => (
-                    <div key={payout.id} className="p-4 hover:bg-accent/50 transition-colors">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h3 className="font-semibold">{payout.vendorName}</h3>
-                            {getStatusBadge(payout.status)}
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm text-muted-foreground">
-                            <div>
-                              <span className="font-medium">Amount: </span>
-                              {formatCurrency(payout.amount)}
-                            </div>
-                            <div>
-                              <span className="font-medium">Method: </span>
-                              {payout.paymentMethod}
-                            </div>
-                            <div>
-                              <span className="font-medium">Requested: </span>
-                              {new Date(payout.requestedAt).toLocaleDateString()}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setPayoutDetailsDialog({ open: true, payout: payout })}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          {canProcessPayouts && payout.status === 'pending' && (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm" disabled={isActionLoading === payout.id}>
-                                  {isActionLoading === payout.id ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <MoreVertical className="h-4 w-4" />
-                                  )}
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                  onClick={() => setProcessPayoutDialog({ open: true, payout: payout })}
-                                >
-                                  Process Payout
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Pagination */}
-          {total > limit && (
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} results
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                >
-                  Previous
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage((p) => p + 1)}
-                  disabled={page * limit >= total}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-      ) : activeTab === 'deposits' ? (
-        <div className="space-y-6">
-          {/* Total Funds Overview */}
-          {totalFunds && (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {/* Revenue Stats Cards */}
+          {revenueStats && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Platform Funds</CardTitle>
-                  <Wallet className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{formatCurrency(totalFunds.totalFunds)}</div>
-                  <p className="text-xs text-muted-foreground">All funds in platform</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Available Balance</CardTitle>
+                  <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-green-600">{formatCurrency(totalFunds.totalAvailable)}</div>
-                  <p className="text-xs text-muted-foreground">Available to users</p>
+                  <div className="text-2xl font-bold">{formatAmount((revenueStats as any)?.realizedRevenue || 0)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    Realized revenue from released escrows
+                  </p>
                 </CardContent>
               </Card>
-
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">In Escrow</CardTitle>
+                  <CardTitle className="text-sm font-medium">Platform Fees</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatAmount((revenueStats as any)?.totalPlatformFees || 0)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    Total platform fees collected
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Pending Revenue</CardTitle>
                   <Clock className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-yellow-600">{formatCurrency(totalFunds.totalEscrow)}</div>
-                  <p className="text-xs text-muted-foreground">Held in escrow</p>
+                  <div className="text-2xl font-bold">{formatAmount((revenueStats as any)?.pendingRevenue || 0)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    Revenue in held escrows
+                  </p>
                 </CardContent>
               </Card>
-
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Deposited</CardTitle>
-                  <ArrowDownCircle className="h-4 w-4 text-muted-foreground" />
+                  <CardTitle className="text-sm font-medium">Lost Revenue</CardTitle>
+                  <AlertTriangle className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{formatCurrency(totalFunds.totalDeposited)}</div>
-                  <p className="text-xs text-muted-foreground">{totalFunds.totalDepositsCount} transactions</p>
+                  <div className="text-2xl font-bold">{formatAmount((revenueStats as any)?.lostRevenue || 0)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    Revenue from refunded/disputed escrows
+                  </p>
                 </CardContent>
               </Card>
             </div>
           )}
 
-          {/* Filters */}
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by user name..."
-                value={depositSearchQuery}
-                onChange={(e) => {
-                  setDepositSearchQuery(e.target.value);
-                  setPage(1);
-                }}
-                className="pl-10"
-              />
-            </div>
-            <select
-              value={depositStatusFilter}
-              onChange={(e) => {
-                setDepositStatusFilter(e.target.value as any);
-                setPage(1);
-              }}
-              className="px-3 py-2 border rounded-md bg-background"
-            >
-              <option value="all">All Status</option>
-              <option value="pending">Pending</option>
-              <option value="processing">Processing</option>
-              <option value="completed">Completed</option>
-              <option value="failed">Failed</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-            <select
-              value={depositPaymentMethodFilter}
-              onChange={(e) => {
-                setDepositPaymentMethodFilter(e.target.value);
-                setPage(1);
-              }}
-              className="px-3 py-2 border rounded-md bg-background"
-            >
-              <option value="all">All Payment Methods</option>
-              <option value="card">Card Deposit</option>
-              <option value="bank_transfer">Bank Transfer</option>
-              <option value="ussd">USSD</option>
-              <option value="mobile_money">Mobile Money</option>
-              <option value="paystack">Paystack</option>
-              <option value="stripe">Stripe</option>
-              <option value="flutterwave">Flutterwave</option>
-            </select>
-          </div>
+          {/* Revenue by Source */}
+          {revenueStats && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Revenue by Source</CardTitle>
+                <CardDescription>Breakdown of revenue by transaction type</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {Object.entries((revenueStats as any)?.revenueBySource || {}).map(([source, amount]) => (
+                    <div key={source} className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-3 h-3 rounded-full bg-primary" />
+                        <span className="text-sm font-medium capitalize">{source}</span>
+                      </div>
+                      <div className="text-sm font-medium">{formatAmount(amount as number)}</div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-          {/* Deposits List */}
+          {/* Loading State */}
+          {isLoading && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Card key={i}>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <div className="h-4 bg-muted animate-pulse rounded" />
+                      <div className="h-4 w-4 bg-muted animate-pulse rounded" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-8 bg-muted animate-pulse rounded mb-2" />
+                      <div className="h-3 bg-muted animate-pulse rounded" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'escrow' && (
+        <div className="space-y-6">
+          {/* Escrow Health Stats */}
+          {escrowHealth && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total in Escrow</CardTitle>
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatAmount((escrowHealth as any)?.totalInEscrow || 0)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    Value currently held in escrow
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Overdue Escrows</CardTitle>
+                  <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{((escrowHealth as any)?.overdueEscrows || 0).toLocaleString()}</div>
+                  <p className="text-xs text-muted-foreground">
+                    Escrows past auto-release date
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Dispute Rate</CardTitle>
+                  <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{((escrowHealth as any)?.disputeRate || 0) * 100}%</div>
+                  <p className="text-xs text-muted-foreground">
+                    Percentage of disputed escrows
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Escrow Details */}
+          {escrowHealth && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Escrow Breakdown</CardTitle>
+                <CardDescription>Detailed escrow status information</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-medium">By Status</h4>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span>Held</span>
+                          <span>{(escrowHealth as any)?.escrowsByStatus?.held || 0}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span>Released</span>
+                          <span>{(escrowHealth as any)?.escrowsByStatus?.released || 0}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span>Disputed</span>
+                          <span>{(escrowHealth as any)?.escrowsByStatus?.disputed || 0}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span>Refunded</span>
+                          <span>{(escrowHealth as any)?.escrowsByStatus?.refunded || 0}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Loading State */}
+          {isLoading && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Card key={i}>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <div className="h-4 bg-muted animate-pulse rounded" />
+                      <div className="h-4 w-4 bg-muted animate-pulse rounded" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-8 bg-muted animate-pulse rounded mb-2" />
+                      <div className="h-3 bg-muted animate-pulse rounded" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'payouts' && (
+        <div className="space-y-6">
+          {/* Filters */}
           <Card>
             <CardHeader>
-              <CardTitle>Deposits & Transactions</CardTitle>
-              <CardDescription>All deposits and transactions into the platform</CardDescription>
+              <CardTitle>Payout Filters</CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent>
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
+                  <Label htmlFor="payout-status">Status:</Label>
+                  <select
+                    id="payout-status"
+                    value={payoutStatusFilter}
+                    onChange={(e) => setPayoutStatusFilter(e.target.value as 'all' | 'requested' | 'pending' | 'processing' | 'completed' | 'paid' | 'failed')}
+                    className="border border-input bg-background px-3 py-2 rounded-md text-sm"
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="requested">Requested</option>
+                    <option value="pending">Pending</option>
+                    <option value="processing">Processing</option>
+                    <option value="completed">Completed</option>
+                    <option value="paid">Paid</option>
+                    <option value="failed">Failed</option>
+                  </select>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Payouts Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Payouts ({total})</CardTitle>
+              <CardDescription>Manage and process payout requests</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {payouts.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">No payouts found</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {payouts.map((payout) => (
+                    <div key={payout.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <p className="text-sm font-medium">User {(payout as any).userId || (payout as any).user_id}</p>
+                          {getStatusBadge(payout.status)}
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {formatAmount((payout as any).amount)} • {formatDateTime((payout as any).createdAt || (payout as any).created_at)}
+                        </p>
+                        {(payout as any).metadata?.bankAccount && (
+                          <p className="text-xs text-muted-foreground">
+                            {(payout as any).metadata.bankAccount.accountName} • {(payout as any).metadata.bankAccount.accountNumber}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPayoutDetailsDialog({ open: true, payout })}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        {payout.status === 'pending' && (isSuperAdmin || hasPermission('process_payouts')) && (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => setProcessPayoutDialog({ open: true, payout })}
+                            disabled={!!isActionLoading}
+                          >
+                            {isActionLoading === payout.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              'Process'
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Pagination */}
+                  {total > limit && (
+                    <div className="flex justify-center pt-4">
+                      <div className="flex space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPage(Math.max(1, page - 1))}
+                          disabled={page === 1}
+                        >
+                          Previous
+                        </Button>
+                        <span className="px-4 py-2 text-sm text-muted-foreground">
+                          Page {page} of {Math.ceil(total / limit)}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPage(page + 1)}
+                          disabled={page * limit >= total}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Loading State */}
+          {isLoading && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="space-y-4">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="space-y-2">
+                        <div className="h-4 bg-muted animate-pulse rounded w-32" />
+                        <div className="h-3 bg-muted animate-pulse rounded w-48" />
+                      </div>
+                      <div className="h-8 bg-muted animate-pulse rounded w-20" />
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'deposits' && (
+        <div className="space-y-6">
+          {/* Deposit Stats */}
+          {totalFunds && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Deposits</CardTitle>
+                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatAmount((totalFunds as any)?.totalDeposits || 0)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    All time deposits
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Pending Deposits</CardTitle>
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatAmount((totalFunds as any)?.pendingDeposits || 0)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    Awaiting processing
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Processed Deposits</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatAmount((totalFunds as any)?.processedDeposits || 0)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    Successfully completed
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Deposit Filters */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Deposit Filters</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center space-x-2">
+                  <Label htmlFor="deposit-status">Status:</Label>
+                  <select
+                    id="deposit-status"
+                    value={depositStatusFilter}
+                    onChange={(e) => setDepositStatusFilter(e.target.value as 'all' | Deposit['status'])}
+                    className="border border-input bg-background px-3 py-2 rounded-md text-sm"
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="pending">Pending</option>
+                    <option value="processing">Processing</option>
+                    <option value="completed">Completed</option>
+                    <option value="failed">Failed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Label htmlFor="payment-method">Payment Method:</Label>
+                  <select
+                    id="payment-method"
+                    value={depositPaymentMethodFilter}
+                    onChange={(e) => setDepositPaymentMethodFilter(e.target.value)}
+                    className="border border-input bg-background px-3 py-2 rounded-md text-sm"
+                  >
+                    <option value="all">All Methods</option>
+                    <option value="card">Card</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="ussd">USSD</option>
+                    <option value="mobile_money">Mobile Money</option>
+                    <option value="paystack">Paystack</option>
+                    <option value="stripe">Stripe</option>
+                    <option value="flutterwave">Flutterwave</option>
+                  </select>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Label htmlFor="deposit-search">Search:</Label>
+                  <Input
+                    id="deposit-search"
+                    type="text"
+                    placeholder="Search deposits..."
+                    value={depositSearchQuery}
+                    onChange={(e) => setDepositSearchQuery(e.target.value)}
+                    className="w-48"
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Deposits Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Deposits ({total})</CardTitle>
+              <CardDescription>Track deposit transactions and status</CardDescription>
+            </CardHeader>
+            <CardContent>
               {deposits.length === 0 ? (
-                <div className="text-center py-12">
-                  <ArrowDownCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <div className="text-center py-8">
                   <p className="text-muted-foreground">No deposits found</p>
                 </div>
               ) : (
-                <div className="divide-y">
+                <div className="space-y-4">
                   {deposits.map((deposit) => (
-                    <div key={deposit.id} className="p-4 hover:bg-accent/50 transition-colors">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h3 className="font-semibold">{deposit.userName}</h3>
-                            {getDepositStatusBadge(deposit.status)}
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm text-muted-foreground">
-                            <div>
-                              <span className="font-medium">Amount: </span>
-                              {formatAmount(deposit.amount)}
-                            </div>
-                            <div>
-                              <span className="font-medium">Method: </span>
-                              {getPaymentMethodLabel(deposit.paymentMethod)}
-                            </div>
-                            <div>
-                              <span className="font-medium">Date: </span>
-                              {new Date(deposit.createdAt).toLocaleString()}
-                            </div>
-                          </div>
+                    <div key={deposit.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <p className="text-sm font-medium">User {deposit.userId}</p>
+                          {getDepositStatusBadge(deposit.status)}
                         </div>
+                        <p className="text-sm text-muted-foreground">
+                          {formatAmount(deposit.amount)} • {getPaymentMethodLabel(deposit.paymentMethod)} • {formatDateTime(deposit.createdAt)}
+                        </p>
+                        {(deposit as any).metadata?.reference && (
+                          <p className="text-xs text-muted-foreground">
+                            Ref: {(deposit as any).metadata.reference}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Pagination */}
+                  {total > limit && (
+                    <div className="flex justify-center pt-4">
+                      <div className="flex space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPage(Math.max(1, page - 1))}
+                          disabled={page === 1}
+                        >
+                          Previous
+                        </Button>
+                        <span className="px-4 py-2 text-sm text-muted-foreground">
+                          Page {page} of {Math.ceil(total / limit)}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPage(page + 1)}
+                          disabled={page * limit >= total}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Loading State */}
+          {isLoading && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="space-y-4">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="space-y-2">
+                        <div className="h-4 bg-muted animate-pulse rounded w-32" />
+                        <div className="h-3 bg-muted animate-pulse rounded w-48" />
                       </div>
                     </div>
                   ))}
                 </div>
-              )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'user-balances' && (
+        <div className="space-y-6">
+          {/* Search */}
+          <Card>
+            <CardHeader>
+              <CardTitle>User Balance Search</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center space-x-2">
+                <Label htmlFor="balance-search">Search:</Label>
+                <Input
+                  id="balance-search"
+                  type="text"
+                  placeholder="Search by user ID, email, or name..."
+                  value={userBalanceSearchQuery}
+                  onChange={(e) => setUserBalanceSearchQuery(e.target.value)}
+                  className="w-96"
+                />
+              </div>
             </CardContent>
           </Card>
 
-          {/* Pagination */}
-          {total > limit && (
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} results
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                >
-                  Previous
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage((p) => p + 1)}
-                  disabled={page * limit >= total}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-      ) : activeTab === 'user-balances' ? (
-        <div className="space-y-6">
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by user name or username..."
-              value={userBalanceSearchQuery}
-              onChange={(e) => {
-                setUserBalanceSearchQuery(e.target.value);
-                setPage(1);
-              }}
-              className="pl-10"
-            />
-          </div>
-
-          {/* User Balances List */}
+          {/* User Balances Table */}
           <Card>
             <CardHeader>
-              <CardTitle>User Balances</CardTitle>
-              <CardDescription>Users sorted by available balance (highest to lowest)</CardDescription>
+              <CardTitle>User Balances ({total})</CardTitle>
+              <CardDescription>Monitor user wallet balances and transaction activity</CardDescription>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent>
               {userBalances.length === 0 ? (
-                <div className="text-center py-12">
-                  <Wallet className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <div className="text-center py-8">
                   <p className="text-muted-foreground">No user balances found</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left p-4 font-semibold">Rank</th>
-                        <th className="text-left p-4 font-semibold">User</th>
-                        <th className="text-right p-4 font-semibold">Available</th>
-                        <th className="text-right p-4 font-semibold">In Escrow</th>
-                        <th className="text-right p-4 font-semibold">Pending Withdrawal</th>
-                        <th className="text-right p-4 font-semibold">Total Balance</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {userBalances.map((balance, index) => (
-                        <tr key={balance.userId} className="border-b hover:bg-accent/50 transition-colors">
-                          <td className="p-4">
-                            <div className="flex items-center gap-2">
-                              <div className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                                index === 0 ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
-                                index === 1 ? 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' :
-                                index === 2 ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' :
-                                'bg-primary/10 text-primary'
-                              }`}>
-                                {(page - 1) * limit + index + 1}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="p-4">
-                            <div>
-                              <p className="font-medium">{balance.userName}</p>
-                              <p className="text-sm text-muted-foreground">@{balance.username}</p>
-                            </div>
-                          </td>
-                          <td className="p-4 text-right">
-                            <span className="font-semibold text-green-600">{formatAmount(balance.availableBalance)}</span>
-                          </td>
-                          <td className="p-4 text-right">
-                            <span className="text-muted-foreground">{formatAmount(balance.escrowBalance)}</span>
-                          </td>
-                          <td className="p-4 text-right">
-                            <span className="text-muted-foreground">{formatAmount(balance.pendingWithdrawal)}</span>
-                          </td>
-                          <td className="p-4 text-right">
-                            <span className="font-bold">{formatAmount(balance.totalBalance)}</span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="space-y-4">
+                  {userBalances.map((balance) => (
+                    <div key={balance.userId} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">User {balance.userId}</p>
+                        <p className="text-sm text-muted-foreground">
+                          Available: {formatAmount((balance as any).availableBalance)} • Pending: {formatAmount((balance as any).pendingBalance)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Total: {formatAmount((balance as any).totalBalance)} • Last updated: {formatDateTime((balance as any).updatedAt)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Pagination */}
+                  {total > limit && (
+                    <div className="flex justify-center pt-4">
+                      <div className="flex space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPage(Math.max(1, page - 1))}
+                          disabled={page === 1}
+                        >
+                          Previous
+                        </Button>
+                        <span className="px-4 py-2 text-sm text-muted-foreground">
+                          Page {page} of {Math.ceil(total / limit)}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPage(page + 1)}
+                          disabled={page * limit >= total}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>
           </Card>
 
-          {/* Pagination */}
-          {total > limit && (
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} results
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                >
-                  Previous
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage((p) => p + 1)}
-                  disabled={page * limit >= total}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
+          {/* Loading State */}
+          {isLoading && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="space-y-4">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="space-y-2">
+                        <div className="h-4 bg-muted animate-pulse rounded w-32" />
+                        <div className="h-3 bg-muted animate-pulse rounded w-48" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           )}
         </div>
-      ) : activeTab === 'platform-wallet' && platformWallet ? (
+      )}
+
+      {activeTab === 'platform-wallet' && (
         <div className="space-y-6">
-          {/* Platform Wallet Balance Cards */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Available Balance</CardTitle>
-                <Wallet className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-600">{formatCurrency(platformWallet.wallet.availableBalance)}</div>
-                <p className="text-xs text-muted-foreground">Available to withdraw</p>
-              </CardContent>
-            </Card>
+          {/* Platform Wallet Overview */}
+          {platformWallet && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Available Balance</CardTitle>
+                  <Wallet className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatAmount((platformWallet as any)?.availableBalance || 0)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    Ready for withdrawal
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Pending Balance</CardTitle>
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatAmount((platformWallet as any)?.pendingBalance || 0)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    In escrow or processing
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Balance</CardTitle>
+                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatAmount((platformWallet as any)?.totalBalance || 0)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    Available + pending
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Bank Accounts</CardTitle>
+                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{platformBankAccounts.filter(acc => acc.isActive).length}</div>
+                  <p className="text-xs text-muted-foreground">
+                    Active accounts
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Escrow Balance</CardTitle>
-                <Clock className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-yellow-600">{formatCurrency(platformWallet.wallet.escrowBalance)}</div>
-                <p className="text-xs text-muted-foreground">Held in escrow</p>
-              </CardContent>
-            </Card>
+          {/* Withdraw Funds Button - More Prominent Position */}
+          {platformWallet && platformBankAccounts.some(acc => acc.isActive && acc.isVerified) && (
+            <div className="flex justify-center">
+              <Button
+                onClick={() => setWithdrawDialog(true)}
+                size="lg"
+                className="bg-green-600 hover:bg-green-700"
+                disabled={(platformWallet as any)?.availableBalance <= 0}
+              >
+                <ArrowUpCircle className="h-5 w-5 mr-2" />
+                Withdraw Funds {(platformWallet as any)?.availableBalance > 0 && `($${formatAmount((platformWallet as any).availableBalance)})`}
+              </Button>
+            </div>
+          )}
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Pending Withdrawal</CardTitle>
-                <ArrowUpCircle className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-blue-600">{formatCurrency(platformWallet.wallet.pendingWithdrawal)}</div>
-                <p className="text-xs text-muted-foreground">Pending requests</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Balance</CardTitle>
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(
-                  platformWallet.wallet.availableBalance + 
-                  platformWallet.wallet.escrowBalance + 
-                  platformWallet.wallet.pendingWithdrawal
-                )}</div>
-                <p className="text-xs text-muted-foreground">Total platform funds</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Actions */}
-          <div className="flex gap-4">
-            <Button onClick={() => setWithdrawDialog(true)} disabled={platformWallet.wallet.availableBalance <= 0}>
-              <ArrowUpCircle className="h-4 w-4 mr-2" />
-              Withdraw Funds
-            </Button>
-          </div>
-
-          {/* Bank Accounts */}
+          {/* Bank Accounts Management */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Bank Accounts</CardTitle>
-                  <CardDescription>Manage bank accounts for platform withdrawals</CardDescription>
+                  <CardDescription>Manage platform withdrawal accounts</CardDescription>
                 </div>
-                <Button onClick={() => setAddBankAccountDialog(true)} size="sm">
+                <Button onClick={() => setAddBankAccountDialog(true)}>
                   <Plus className="h-4 w-4 mr-2" />
-                  Add Bank Account
+                  Add Account
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent>
               {platformBankAccounts.length === 0 ? (
-                <div className="text-center py-12">
+                <div className="text-center py-8">
                   <Building2 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground mb-4">No bank accounts added</p>
-                  <Button onClick={() => setAddBankAccountDialog(true)} variant="outline">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Bank Account
-                  </Button>
+                  <p className="text-muted-foreground">No bank accounts configured</p>
                 </div>
               ) : (
-                <div className="divide-y">
+                <div className="space-y-4">
                   {platformBankAccounts.map((account) => (
-                    <div key={account.id} className="p-4 hover:bg-accent/50 transition-colors">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h3 className="font-semibold">{account.accountName}</h3>
-                            {account.isDefault && <Badge variant="default">Default</Badge>}
-                            {account.isVerified ? (
-                              <Badge variant="default">Verified</Badge>
-                            ) : (
-                              <Badge variant="outline">Unverified</Badge>
-                            )}
-                            {!account.isActive && <Badge variant="destructive">Inactive</Badge>}
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm text-muted-foreground">
-                            <div>
-                              <span className="font-medium">Bank: </span>
-                              {account.bankName}
-                            </div>
-                            <div>
-                              <span className="font-medium">Account: </span>
-                              {account.accountNumber}
-                            </div>
-                            <div>
-                              <span className="font-medium">Type: </span>
-                              {account.accountType}
-                            </div>
-                            {account.bankCode && (
-                              <div>
-                                <span className="font-medium">Bank Code: </span>
-                                {account.bankCode}
-                              </div>
-                            )}
-                            {account.country && (
-                              <div>
-                                <span className="font-medium">Country: </span>
-                                {account.country}
-                              </div>
-                            )}
-                            {account.currency && (
-                              <div>
-                                <span className="font-medium">Currency: </span>
-                                {account.currency}
-                              </div>
-                            )}
-                          </div>
+                    <div key={account.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <p className="text-sm font-medium">{account.accountName}</p>
+                          {(account as any).isDefault && <Badge variant="secondary">Default</Badge>}
+                          {!(account as any).isActive && <Badge variant="outline">Inactive</Badge>}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setBankAccountForm({
-                                accountName: account.accountName,
-                                bankName: account.bankName,
-                                bankCode: account.bankCode || '',
-                                accountNumber: account.accountNumber,
-                                accountType: account.accountType,
-                                currency: account.currency,
-                                country: account.country,
-                                branchName: account.branchName,
-                                branchCode: account.branchCode,
-                                isDefault: account.isDefault,
-                              });
-                              setEditBankAccountDialog({ open: true, account });
-                            }}
-                            disabled={!account.isActive}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setDeleteBankAccountDialog({ open: true, account })}
-                            disabled={isActionLoading === account.id || account.isDefault}
-                          >
-                            {isActionLoading === account.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-4 w-4" />
-                            )}
-                          </Button>
-                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {account.bankName} • {account.accountNumber} • {account.currency}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {account.country} • {account.accountType}
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setEditBankAccountDialog({ open: true, account })}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuItem
+                              onClick={() => setDeleteBankAccountDialog({ open: true, account })}
+                              className="text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
                   ))}
@@ -1357,61 +1416,126 @@ export default function FinancePage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Withdrawal History */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Withdrawal History</CardTitle>
+              <CardDescription>Track platform fund withdrawals</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {platformWithdrawals.length === 0 ? (
+                <div className="text-center py-8">
+                  <ArrowUpCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <p className="text-muted-foreground">No withdrawal history</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {platformWithdrawals.map((withdrawal) => (
+                    <div key={withdrawal.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <p className="text-sm font-medium">Withdrawal #{(withdrawal as any).id}</p>
+                          <Badge variant={(withdrawal as any).status === 'completed' ? 'default' : (withdrawal as any).status === 'pending' ? 'secondary' : 'destructive'}>
+                            {(withdrawal as any).status}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {formatAmount((withdrawal as any).amount)} • {formatDateTime((withdrawal as any).createdAt || (withdrawal as any).created_at)}
+                        </p>
+                        {withdrawal.bankAccount && (
+                          <p className="text-xs text-muted-foreground">
+                            {withdrawal.bankAccount.accountName} • {withdrawal.bankAccount.accountNumber}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Load More Button */}
+                  {withdrawalPagination.hasMore && (
+                    <div className="flex justify-center pt-4">
+                      <Button
+                        variant="outline"
+                        onClick={handleLoadMoreWithdrawals}
+                        disabled={loadingMoreWithdrawals}
+                      >
+                        {loadingMoreWithdrawals ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            Loading...
+                          </>
+                        ) : (
+                          'Load More'
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Loading State */}
+          {isLoading && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Card key={i}>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <div className="h-4 bg-muted animate-pulse rounded" />
+                      <div className="h-4 w-4 bg-muted animate-pulse rounded" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-8 bg-muted animate-pulse rounded mb-2" />
+                      <div className="h-3 bg-muted animate-pulse rounded" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-      ) : activeTab === 'platform-wallet' ? (
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      ) : null}
+      )}
 
       {/* Payout Details Dialog */}
       <Dialog open={payoutDetailsDialog.open} onOpenChange={(open) => setPayoutDetailsDialog({ open, payout: null })}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Payout Details</DialogTitle>
-            <DialogDescription>View detailed information about this payout</DialogDescription>
+            <DialogDescription>Detailed information about this payout request</DialogDescription>
           </DialogHeader>
           {payoutDetailsDialog.payout && (
             <div className="space-y-4">
-              <div className="flex items-center gap-4 pb-4 border-b">
-                <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <CreditCard className="h-6 w-6 text-primary" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-semibold">{payoutDetailsDialog.payout.vendorName}</h3>
-                  {getStatusBadge(payoutDetailsDialog.payout.status)}
-                </div>
-              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Amount</p>
-                  <p className="text-sm font-semibold">{formatCurrency(payoutDetailsDialog.payout.amount)}</p>
+                  <Label className="text-xs text-muted-foreground">Amount</Label>
+                  <p className="text-sm font-medium">{formatAmount((payoutDetailsDialog.payout as any).amount)}</p>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Payment Method</p>
-                  <p className="text-sm">{payoutDetailsDialog.payout.paymentMethod}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Status</p>
+                  <Label className="text-xs text-muted-foreground">Status</Label>
                   <div className="mt-1">{getStatusBadge(payoutDetailsDialog.payout.status)}</div>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Requested Date</p>
-                  <p className="text-sm">{new Date(payoutDetailsDialog.payout.requestedAt).toLocaleString()}</p>
+                  <Label className="text-xs text-muted-foreground">User ID</Label>
+                  <p className="text-sm font-medium">{(payoutDetailsDialog.payout as any).userId || (payoutDetailsDialog.payout as any).user_id}</p>
                 </div>
-                {payoutDetailsDialog.payout.processedAt && (
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Processed Date</p>
-                    <p className="text-sm">{new Date(payoutDetailsDialog.payout.processedAt).toLocaleString()}</p>
-                  </div>
-                )}
-                {payoutDetailsDialog.payout.accountDetails && (
-                  <div className="col-span-2">
-                    <p className="text-sm font-medium text-muted-foreground">Account Details</p>
-                    <p className="text-sm">{payoutDetailsDialog.payout.accountDetails}</p>
-                  </div>
-                )}
+                <div>
+                  <Label className="text-xs text-muted-foreground">Created</Label>
+                  <p className="text-sm font-medium">{formatDateTime((payoutDetailsDialog.payout as any).createdAt || (payoutDetailsDialog.payout as any).created_at)}</p>
+                </div>
               </div>
+              {(payoutDetailsDialog.payout as any).metadata?.bankAccount && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">Bank Account</Label>
+                  <div className="mt-1 p-3 bg-muted rounded-md">
+                    <p className="text-sm">{(payoutDetailsDialog.payout as any).metadata.bankAccount.accountName}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {(payoutDetailsDialog.payout as any).metadata.bankAccount.bankName} • {(payoutDetailsDialog.payout as any).metadata.bankAccount.accountNumber}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
@@ -1419,31 +1543,35 @@ export default function FinancePage() {
 
       {/* Process Payout Dialog */}
       <Dialog open={processPayoutDialog.open} onOpenChange={(open) => setProcessPayoutDialog({ open, payout: null })}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Process Payout</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to process this payout? This action cannot be undone.
-            </DialogDescription>
+            <DialogDescription>Confirm payout processing for this request</DialogDescription>
           </DialogHeader>
           {processPayoutDialog.payout && (
             <div className="space-y-4">
-              <div className="text-sm space-y-2">
-                <p><span className="font-medium">Vendor:</span> {processPayoutDialog.payout.vendorName}</p>
-                <p><span className="font-medium">Amount:</span> {formatCurrency(processPayoutDialog.payout.amount)}</p>
-                <p><span className="font-medium">Method:</span> {processPayoutDialog.payout.paymentMethod}</p>
+              <div className="p-4 bg-muted rounded-md">
+                <p className="text-sm font-medium">Amount: {formatAmount((processPayoutDialog.payout as any).amount)}</p>
+                <p className="text-sm text-muted-foreground">User: {(processPayoutDialog.payout as any).userId || (processPayoutDialog.payout as any).user_id}</p>
               </div>
+              <p className="text-sm text-muted-foreground">
+                This action will mark the payout as completed and initiate the transfer to the user's bank account.
+              </p>
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setProcessPayoutDialog({ open: false, payout: null })}>
               Cancel
             </Button>
-            <Button
-              onClick={handleProcessPayout}
-              disabled={isActionLoading === processPayoutDialog.payout?.id}
-            >
-              {isActionLoading === processPayoutDialog.payout?.id ? 'Processing...' : 'Process Payout'}
+            <Button onClick={handleProcessPayout} disabled={!!isActionLoading}>
+              {isActionLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Processing...
+                </>
+              ) : (
+                'Process Payout'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1451,103 +1579,101 @@ export default function FinancePage() {
 
       {/* Add Bank Account Dialog */}
       <Dialog open={addBankAccountDialog} onOpenChange={setAddBankAccountDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Add Bank Account</DialogTitle>
             <DialogDescription>Add a new bank account for platform withdrawals</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label htmlFor="accountName">Account Name</Label>
+              <Label htmlFor="account-name">Account Name</Label>
               <Input
-                id="accountName"
+                id="account-name"
                 value={bankAccountForm.accountName}
-                onChange={(e) => setBankAccountForm({ ...bankAccountForm, accountName: e.target.value })}
-                placeholder="Account holder name"
+                onChange={(e) => setBankAccountForm(prev => ({ ...prev, accountName: e.target.value }))}
+                placeholder="Enter account name"
               />
             </div>
             <div>
-              <Label htmlFor="bankName">Bank Name</Label>
+              <Label htmlFor="bank-name">Bank Name</Label>
               <Input
-                id="bankName"
+                id="bank-name"
                 value={bankAccountForm.bankName}
-                onChange={(e) => setBankAccountForm({ ...bankAccountForm, bankName: e.target.value })}
-                placeholder="Bank name"
+                onChange={(e) => setBankAccountForm(prev => ({ ...prev, bankName: e.target.value }))}
+                placeholder="Enter bank name"
               />
             </div>
             <div>
-              <Label htmlFor="accountNumber">Account Number</Label>
+              <Label htmlFor="bank-code">Bank Code</Label>
               <Input
-                id="accountNumber"
-                value={bankAccountForm.accountNumber}
-                onChange={(e) => setBankAccountForm({ ...bankAccountForm, accountNumber: e.target.value })}
-                placeholder="Account number"
+                id="bank-code"
+                value={bankAccountForm.bankCode}
+                onChange={(e) => setBankAccountForm(prev => ({ ...prev, bankCode: e.target.value }))}
+                placeholder="Enter bank code"
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="bankCode">Bank Code</Label>
-                <Input
-                  id="bankCode"
-                  value={bankAccountForm.bankCode}
-                  onChange={(e) => setBankAccountForm({ ...bankAccountForm, bankCode: e.target.value })}
-                  placeholder="Bank code (required for withdrawals)"
-                />
-              </div>
-              <div>
-                <Label htmlFor="accountType">Account Type</Label>
-                <select
-                  id="accountType"
-                  value={bankAccountForm.accountType}
-                  onChange={(e) => setBankAccountForm({ ...bankAccountForm, accountType: e.target.value as any })}
-                  className="w-full px-3 py-2 border rounded-md bg-background"
-                >
-                  <option value="checking">Checking</option>
-                  <option value="savings">Savings</option>
-                  <option value="current">Current</option>
-                </select>
-              </div>
+            <div>
+              <Label htmlFor="account-number">Account Number</Label>
+              <Input
+                id="account-number"
+                value={bankAccountForm.accountNumber}
+                onChange={(e) => setBankAccountForm(prev => ({ ...prev, accountNumber: e.target.value }))}
+                placeholder="Enter account number"
+              />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="currency">Currency</Label>
-                <Input
-                  id="currency"
-                  value={bankAccountForm.currency}
-                  onChange={(e) => setBankAccountForm({ ...bankAccountForm, currency: e.target.value })}
-                  placeholder="USD"
-                />
-              </div>
-              <div>
-                <Label htmlFor="country">Country Code</Label>
-                <Input
-                  id="country"
-                  value={bankAccountForm.country}
-                  onChange={(e) => setBankAccountForm({ ...bankAccountForm, country: e.target.value })}
-                  placeholder="US"
-                />
-              </div>
+            <div>
+              <Label htmlFor="account-type">Account Type</Label>
+              <select
+                id="account-type"
+                value={bankAccountForm.accountType}
+                onChange={(e) => setBankAccountForm(prev => ({ ...prev, accountType: e.target.value as 'checking' | 'savings' }))}
+                className="w-full border border-input bg-background px-3 py-2 rounded-md text-sm"
+              >
+                <option value="checking">Checking</option>
+                <option value="savings">Savings</option>
+              </select>
+            </div>
+            <div>
+              <Label htmlFor="currency">Currency</Label>
+              <Input
+                id="currency"
+                value={bankAccountForm.currency}
+                onChange={(e) => setBankAccountForm(prev => ({ ...prev, currency: e.target.value }))}
+                placeholder="USD"
+              />
+            </div>
+            <div>
+              <Label htmlFor="country">Country</Label>
+              <Input
+                id="country"
+                value={bankAccountForm.country}
+                onChange={(e) => setBankAccountForm(prev => ({ ...prev, country: e.target.value }))}
+                placeholder="US"
+              />
             </div>
             <div className="flex items-center space-x-2">
               <input
                 type="checkbox"
-                id="isDefault"
-                checked={bankAccountForm.isDefault}
-                onChange={(e) => setBankAccountForm({ ...bankAccountForm, isDefault: e.target.checked })}
-                className="rounded border-gray-300"
+                id="is-default"
+                checked={!!bankAccountForm.isDefault}
+                onChange={(e) => setBankAccountForm(prev => ({ ...prev, isDefault: e.target.checked }))}
               />
-              <Label htmlFor="isDefault" className="cursor-pointer">Set as default account</Label>
+              <Label htmlFor="is-default">Set as default account</Label>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddBankAccountDialog(false)}>
               Cancel
             </Button>
-            <Button
-              onClick={handleAddBankAccount}
-              disabled={isActionLoading === 'add-bank' || !bankAccountForm.accountName || !bankAccountForm.bankName || !bankAccountForm.accountNumber}
-            >
-              {isActionLoading === 'add-bank' ? 'Adding...' : 'Add Bank Account'}
+            <Button onClick={handleAddBankAccount} disabled={!!isActionLoading}>
+              {isActionLoading === 'add-bank' ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Adding...
+                </>
+              ) : (
+                'Add Account'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1555,76 +1681,101 @@ export default function FinancePage() {
 
       {/* Edit Bank Account Dialog */}
       <Dialog open={editBankAccountDialog.open} onOpenChange={(open) => setEditBankAccountDialog({ open, account: null })}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Edit Bank Account</DialogTitle>
-            <DialogDescription>Update bank account details</DialogDescription>
+            <DialogDescription>Update bank account information</DialogDescription>
           </DialogHeader>
-          {editBankAccountDialog.account && (
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="edit-accountName">Account Name</Label>
-                <Input
-                  id="edit-accountName"
-                  value={bankAccountForm.accountName}
-                  onChange={(e) => setBankAccountForm({ ...bankAccountForm, accountName: e.target.value })}
-                  placeholder="Account holder name"
-                />
-              </div>
-              <div>
-                <Label htmlFor="edit-bankName">Bank Name</Label>
-                <Input
-                  id="edit-bankName"
-                  value={bankAccountForm.bankName}
-                  onChange={(e) => setBankAccountForm({ ...bankAccountForm, bankName: e.target.value })}
-                  placeholder="Bank name"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="edit-bankCode">Bank Code</Label>
-                  <Input
-                    id="edit-bankCode"
-                    value={bankAccountForm.bankCode}
-                    onChange={(e) => setBankAccountForm({ ...bankAccountForm, bankCode: e.target.value })}
-                    placeholder="Bank code"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit-accountType">Account Type</Label>
-                  <select
-                    id="edit-accountType"
-                    value={bankAccountForm.accountType}
-                    onChange={(e) => setBankAccountForm({ ...bankAccountForm, accountType: e.target.value as any })}
-                    className="w-full px-3 py-2 border rounded-md bg-background"
-                  >
-                    <option value="checking">Checking</option>
-                    <option value="savings">Savings</option>
-                    <option value="current">Current</option>
-                  </select>
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="edit-isDefault"
-                  checked={bankAccountForm.isDefault}
-                  onChange={(e) => setBankAccountForm({ ...bankAccountForm, isDefault: e.target.checked })}
-                  className="rounded border-gray-300"
-                />
-                <Label htmlFor="edit-isDefault" className="cursor-pointer">Set as default account</Label>
-              </div>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="edit-account-name">Account Name</Label>
+              <Input
+                id="edit-account-name"
+                value={bankAccountForm.accountName}
+                onChange={(e) => setBankAccountForm(prev => ({ ...prev, accountName: e.target.value }))}
+                placeholder="Enter account name"
+              />
             </div>
-          )}
+            <div>
+              <Label htmlFor="edit-bank-name">Bank Name</Label>
+              <Input
+                id="edit-bank-name"
+                value={bankAccountForm.bankName}
+                onChange={(e) => setBankAccountForm(prev => ({ ...prev, bankName: e.target.value }))}
+                placeholder="Enter bank name"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-bank-code">Bank Code</Label>
+              <Input
+                id="edit-bank-code"
+                value={bankAccountForm.bankCode}
+                onChange={(e) => setBankAccountForm(prev => ({ ...prev, bankCode: e.target.value }))}
+                placeholder="Enter bank code"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-account-number">Account Number</Label>
+              <Input
+                id="edit-account-number"
+                value={bankAccountForm.accountNumber}
+                onChange={(e) => setBankAccountForm(prev => ({ ...prev, accountNumber: e.target.value }))}
+                placeholder="Enter account number"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-account-type">Account Type</Label>
+              <select
+                id="edit-account-type"
+                value={bankAccountForm.accountType}
+                onChange={(e) => setBankAccountForm(prev => ({ ...prev, accountType: e.target.value as 'checking' | 'savings' }))}
+                className="w-full border border-input bg-background px-3 py-2 rounded-md text-sm"
+              >
+                <option value="checking">Checking</option>
+                <option value="savings">Savings</option>
+              </select>
+            </div>
+            <div>
+              <Label htmlFor="edit-currency">Currency</Label>
+              <Input
+                id="edit-currency"
+                value={bankAccountForm.currency}
+                onChange={(e) => setBankAccountForm(prev => ({ ...prev, currency: e.target.value }))}
+                placeholder="USD"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-country">Country</Label>
+              <Input
+                id="edit-country"
+                value={bankAccountForm.country}
+                onChange={(e) => setBankAccountForm(prev => ({ ...prev, country: e.target.value }))}
+                placeholder="US"
+              />
+            </div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="edit-is-default"
+                checked={!!bankAccountForm.isDefault}
+                onChange={(e) => setBankAccountForm(prev => ({ ...prev, isDefault: e.target.checked }))}
+              />
+              <Label htmlFor="edit-is-default">Set as default account</Label>
+            </div>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditBankAccountDialog({ open: false, account: null })}>
               Cancel
             </Button>
-            <Button
-              onClick={handleUpdateBankAccount}
-              disabled={isActionLoading === editBankAccountDialog.account?.id}
-            >
-              {isActionLoading === editBankAccountDialog.account?.id ? 'Updating...' : 'Update Bank Account'}
+            <Button onClick={handleUpdateBankAccount} disabled={!!isActionLoading}>
+              {isActionLoading && typeof isActionLoading === 'string' && isActionLoading.startsWith('edit-') ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Updating...
+                </>
+              ) : (
+                'Update Account'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1632,75 +1783,74 @@ export default function FinancePage() {
 
       {/* Delete Bank Account Dialog */}
       <Dialog open={deleteBankAccountDialog.open} onOpenChange={(open) => setDeleteBankAccountDialog({ open, account: null })}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Delete Bank Account</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete this bank account? This action cannot be undone.
-            </DialogDescription>
+            <DialogDescription>Are you sure you want to delete this bank account?</DialogDescription>
           </DialogHeader>
           {deleteBankAccountDialog.account && (
-            <div className="space-y-4">
-              <div className="text-sm space-y-2">
-                <p><span className="font-medium">Account Name:</span> {deleteBankAccountDialog.account.accountName}</p>
-                <p><span className="font-medium">Bank:</span> {deleteBankAccountDialog.account.bankName}</p>
-                <p><span className="font-medium">Account Number:</span> {deleteBankAccountDialog.account.accountNumber}</p>
-              </div>
+            <div className="p-4 bg-muted rounded-md">
+              <p className="text-sm font-medium">{deleteBankAccountDialog.account.accountName}</p>
+              <p className="text-sm text-muted-foreground">
+                {deleteBankAccountDialog.account.bankName} • {deleteBankAccountDialog.account.accountNumber}
+              </p>
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteBankAccountDialog({ open: false, account: null })}>
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteBankAccount}
-              disabled={isActionLoading === deleteBankAccountDialog.account?.id}
-            >
-              {isActionLoading === deleteBankAccountDialog.account?.id ? 'Deleting...' : 'Delete Bank Account'}
+            <Button variant="destructive" onClick={handleDeleteBankAccount} disabled={!!isActionLoading}>
+              {isActionLoading && typeof isActionLoading === 'string' && isActionLoading.startsWith('delete-') ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete Account'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Withdraw Dialog */}
+      {/* Withdraw Funds Dialog */}
       <Dialog open={withdrawDialog} onOpenChange={setWithdrawDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Withdraw Platform Funds</DialogTitle>
-            <DialogDescription>Create a withdrawal request to transfer funds to a bank account</DialogDescription>
+            <DialogTitle>Withdraw Funds</DialogTitle>
+            <DialogDescription>Create a withdrawal request from platform wallet</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label htmlFor="withdrawAmount">Amount (Freti)</Label>
+              <Label htmlFor="withdraw-amount">Amount (Freti)</Label>
               <Input
-                id="withdrawAmount"
+                id="withdraw-amount"
                 type="number"
-                step="0.01"
-                min="0.01"
-                max={platformWallet?.wallet.availableBalance || 0}
-                value={withdrawForm.fretiAmount || ''}
-                onChange={(e) => setWithdrawForm({ ...withdrawForm, fretiAmount: parseFloat(e.target.value) || 0 })}
+                value={withdrawForm.fretiAmount}
+                onChange={(e) => setWithdrawForm(prev => ({ ...prev, fretiAmount: parseFloat(e.target.value) || 0 }))}
                 placeholder="Enter amount"
+                min="0"
+                step="0.01"
               />
               {platformWallet && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  Available: {formatCurrency(platformWallet.wallet.availableBalance)}
+                  Available: {formatAmount((platformWallet as any)?.availableBalance || 0)}
                 </p>
               )}
             </div>
             <div>
-              <Label htmlFor="withdrawBankAccount">Bank Account</Label>
+              <Label htmlFor="withdraw-bank-account">Bank Account</Label>
               <select
-                id="withdrawBankAccount"
+                id="withdraw-bank-account"
                 value={withdrawForm.bankAccountId}
-                onChange={(e) => setWithdrawForm({ ...withdrawForm, bankAccountId: e.target.value })}
-                className="w-full px-3 py-2 border rounded-md bg-background"
+                onChange={(e) => setWithdrawForm(prev => ({ ...prev, bankAccountId: e.target.value }))}
+                className="w-full border border-input bg-background px-3 py-2 rounded-md text-sm"
               >
-                <option value="">Select a bank account</option>
+                <option value="">Select bank account</option>
                 {platformBankAccounts.filter(acc => acc.isActive && acc.isVerified).map((account) => (
                   <option key={account.id} value={account.id}>
-                    {account.accountName} - {account.bankName} ({account.accountNumber}) {account.isDefault && '(Default)'}
+                    {account.accountName} • {account.accountNumber} ({account.currency})
                   </option>
                 ))}
               </select>
@@ -1721,16 +1871,24 @@ export default function FinancePage() {
                 isActionLoading === 'withdraw' ||
                 !withdrawForm.bankAccountId ||
                 withdrawForm.fretiAmount <= 0 ||
-                (platformWallet && withdrawForm.fretiAmount > platformWallet.wallet.availableBalance) ||
+                (platformWallet && withdrawForm.fretiAmount > (platformWallet as any).availableBalance) ||
                 platformBankAccounts.filter(acc => acc.isActive && acc.isVerified).length === 0
               }
             >
-              {isActionLoading === 'withdraw' ? 'Creating...' : 'Create Withdrawal Request'}
+              {isActionLoading === 'withdraw' ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Creating...
+                </>
+              ) : (
+                'Create Withdrawal Request'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
   );
-}
+};
 
+export default FinancePage;

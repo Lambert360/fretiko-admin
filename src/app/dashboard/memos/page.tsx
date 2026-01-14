@@ -85,7 +85,6 @@ export default function MemosPage() {
     try {
       const statsData = await memosAPI.getStats();
       setStats(statsData);
-      console.log('Stats updated:', statsData);
     } catch (err: any) {
       console.error('Failed to fetch memo stats:', err);
       toast({

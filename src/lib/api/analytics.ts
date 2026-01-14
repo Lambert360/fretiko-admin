@@ -94,11 +94,15 @@ export const analyticsAPI = {
     start: string,
     end: string,
     period: 'daily' | 'weekly' | 'monthly' = 'daily',
+    timezoneOffset?: number,
   ): Promise<TimeSeriesData[]> => {
     const params = new URLSearchParams();
     params.append('start', start);
     params.append('end', end);
     params.append('period', period);
+    if (timezoneOffset !== undefined) {
+      params.append('timezoneOffset', timezoneOffset.toString());
+    }
 
     return apiClient.get<TimeSeriesData[]>(`/admin/analytics/timeseries${params.toString() ? `?${params.toString()}` : ''}`);
   },

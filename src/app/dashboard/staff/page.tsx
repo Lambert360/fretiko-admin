@@ -32,7 +32,7 @@ import type { Staff } from '@/types/staff';
 import { StaffRole } from '@/types/staff';
 
 export default function StaffManagementPage() {
-  const { isSuperAdmin, isDepartmentHead } = useAuth();
+  const { isSuperAdmin, isDepartmentHead, hasPermission } = useAuth();
   const [staff, setStaff] = useState<Staff[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,6 +52,11 @@ export default function StaffManagementPage() {
   const [suspensionReason, setSuspensionReason] = useState('');
   const [deletionReason, setDeletionReason] = useState('');
   const [isModerationLoading, setIsModerationLoading] = useState(false);
+  const [isModifyOpen, setIsModifyOpen] = useState(false);
+  const [modifyForm, setModifyForm] = useState<{ departmentId: string; role: StaffRole }>({
+    departmentId: '',
+    role: StaffRole.STAFF,
+  });
   
   const { handleError, handleSuccess } = useErrorHandler();
   
@@ -72,10 +77,15 @@ export default function StaffManagementPage() {
     },
   });
 
+  // Permission check - Only super admins, HR dept, or staff with create_staff permission can access
+  const canViewStaff = isSuperAdmin || hasPermission('create_staff') || hasPermission('view_staff_logs');
+
   useEffect(() => {
-    fetchStaff();
-    fetchDepartments();
-  }, []);
+    if (canViewStaff) {
+      fetchStaff();
+      fetchDepartments();
+    }
+  }, [canViewStaff]);
 
   const fetchStaff = async () => {
     try {
@@ -95,7 +105,6 @@ export default function StaffManagementPage() {
       setIsLoadingDepartments(true);
       setDepartmentsError(null);
       const data = await departmentsAPI.getAllDepartments();
-      console.log('Departments fetched:', data);
       setDepartments(Array.isArray(data) ? data : []);
     } catch (error: any) {
       console.error('Failed to fetch departments:', error);
@@ -222,6 +231,35 @@ export default function StaffManagementPage() {
     }
   };
 
+  const handleModify = (member: Staff) => {
+    setSelectedStaff(member);
+    setModifyForm({
+      departmentId: member.departmentId || '',
+      role: member.role,
+    });
+    setIsModifyOpen(true);
+  };
+
+  const handleModifySubmit = async () => {
+    if (!selectedStaff) return;
+
+    try {
+      setIsModerationLoading(true);
+      await staffAPI.modifyStaff(selectedStaff.id, {
+        departmentId: modifyForm.departmentId || undefined,
+        role: modifyForm.role,
+      });
+      setSuccess(`${selectedStaff.fullName} has been modified successfully`);
+      setIsModifyOpen(false);
+      setSelectedStaff(null);
+      await fetchStaff();
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to modify staff');
+    } finally {
+      setIsModerationLoading(false);
+    }
+  };
+
   const getRoleBadgeColor = (role: StaffRole) => {
     switch (role) {
       case StaffRole.SUPER_ADMIN:
@@ -266,6 +304,20 @@ export default function StaffManagementPage() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
           <p className="mt-4 text-muted-foreground">Loading staff...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Access Denied - Check permission
+  if (!canViewStaff) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+          <h3 className="text-lg font-semibold mb-2">Access Denied</h3>
+          <p className="text-muted-foreground">You don't have permission to view staff accounts.</p>
+          <p className="text-xs text-muted-foreground mt-2">Contact HR or a super admin for access.</p>
         </div>
       </div>
     );
@@ -488,6 +540,28 @@ export default function StaffManagementPage() {
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
+                          {/* Modify Button (Super Admin Only) */}
+                          {isSuperAdmin && !member.deletedAt && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleModify(member)}
+                                    disabled={isModerationLoading}
+                                    aria-label="Modify Role/Department"
+                                    className="text-blue-600 hover:text-blue-700"
+                                  >
+                                    <UserCog className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Modify Role/Department</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
                           {!member.deletedAt && (
                             <>
                               {member.isSuspended ? (
@@ -935,6 +1009,77 @@ export default function StaffManagementPage() {
             </Button>
             <Button onClick={handleDeleteSubmit} disabled={isModerationLoading} className="bg-red-600 hover:bg-red-700">
               {isModerationLoading ? 'Deleting...' : 'Delete Staff'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modify Staff Dialog (Super Admin Only) */}
+      <Dialog open={isModifyOpen} onOpenChange={setIsModifyOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Modify Staff - {selectedStaff?.fullName}</DialogTitle>
+            <DialogDescription>
+              Change department or promote/demote staff member. Only super admins can perform this action.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Department Selection */}
+            <div className="space-y-2">
+              <Label htmlFor="modify-department">Department</Label>
+              <select
+                id="modify-department"
+                className="w-full p-2 border rounded-md"
+                value={modifyForm.departmentId}
+                onChange={(e) => setModifyForm({ ...modifyForm, departmentId: e.target.value })}
+                disabled={isModerationLoading}
+              >
+                <option value="">No Department</option>
+                {departments.map((dept) => (
+                  <option key={dept.id} value={dept.id}>
+                    {dept.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">Transfer staff to a different department</p>
+            </div>
+            
+            {/* Role Selection */}
+            <div className="space-y-2">
+              <Label htmlFor="modify-role">Role</Label>
+              <select
+                id="modify-role"
+                className="w-full p-2 border rounded-md"
+                value={modifyForm.role}
+                onChange={(e) => setModifyForm({ ...modifyForm, role: e.target.value as StaffRole })}
+                disabled={isModerationLoading}
+              >
+                <option value={StaffRole.STAFF}>Staff</option>
+                <option value={StaffRole.DEPARTMENT_HEAD}>Department Head</option>
+                <option value={StaffRole.SUPER_ADMIN}>Super Admin</option>
+              </select>
+              <p className="text-xs text-muted-foreground">Promote or demote staff member</p>
+            </div>
+            
+            {/* Warning for Super Admin promotion */}
+            {modifyForm.role === StaffRole.SUPER_ADMIN && selectedStaff?.role !== StaffRole.SUPER_ADMIN && (
+              <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 text-yellow-800 dark:text-yellow-200 px-4 py-3 rounded-md">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5" />
+                  <div>
+                    <p className="text-sm font-medium">Warning: Promoting to Super Admin</p>
+                    <p className="text-xs mt-1">This will grant {selectedStaff?.fullName} unrestricted access to all features and data.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsModifyOpen(false)} disabled={isModerationLoading}>
+              Cancel
+            </Button>
+            <Button onClick={handleModifySubmit} disabled={isModerationLoading}>
+              {isModerationLoading ? 'Saving...' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>

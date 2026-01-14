@@ -1160,16 +1160,9 @@ export default function ContentModerationPage() {
                     if (report?.productId) {
                       try {
                         setIsLoadingReportedContent(true);
-                        console.log('[View Reported Content] Product ID from report:', report.productId);
-                        console.log('[View Reported Content] Full report object:', report);
-                        console.log('[View Reported Content] Calling getProductById with:', report.productId);
-                        
                         const product = await contentAPI.getProductById(report.productId);
-                        
-                        console.log('[View Reported Content] Product fetched:', product);
-                        
+
                         if (product) {
-                          console.log('[View Reported Content] Product found, opening dialog');
                           setViewContentDialog({ open: true, content: product, type: 'product' });
                         } else {
                           console.warn('[View Reported Content] Product is null/undefined');
@@ -1200,16 +1193,9 @@ export default function ContentModerationPage() {
                     } else if (report?.serviceId) {
                       try {
                         setIsLoadingReportedContent(true);
-                        console.log('[View Reported Content] Service ID from report:', report.serviceId);
-                        console.log('[View Reported Content] Full report object:', report);
-                        console.log('[View Reported Content] Calling getServiceById with:', report.serviceId);
-                        
                         const service = await contentAPI.getServiceById(report.serviceId);
-                        
-                        console.log('[View Reported Content] Service fetched:', service);
-                        
+
                         if (service) {
-                          console.log('[View Reported Content] Service found, opening dialog');
                           setViewContentDialog({ open: true, content: service, type: 'service' });
                         } else {
                           console.warn('[View Reported Content] Service is null/undefined');

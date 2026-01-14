@@ -2,9 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSidebar } from '@/contexts/SidebarContext';
+import { useNavBadges } from '@/hooks/use-nav-badges';
+import { useAdminNotifications } from '@/hooks/use-admin-notifications';
 import { StaffRole } from '@/types/staff';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { X } from 'lucide-react';
 import {
@@ -30,7 +34,9 @@ interface NavItem {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   permission?: string;
+  permissions?: string[]; // Alternative: array of permissions (OR logic)
   roles?: string[];
+  badgeKey?: 'disputes' | 'reports' | 'memos' | 'orders' | 'notifications';
 }
 
 const navItems: NavItem[] = [
@@ -56,6 +62,7 @@ const navItems: NavItem[] = [
     href: '/dashboard/disputes',
     icon: MessageSquare,
     permission: 'view_disputes',
+    badgeKey: 'disputes',
   },
   {
     title: 'Suspension Appeals',
@@ -92,19 +99,20 @@ const navItems: NavItem[] = [
     href: '/dashboard/memos',
     icon: Mail,
     permission: 'view_memos',
+    badgeKey: 'memos',
   },
   {
     title: 'Reports',
     href: '/dashboard/reports',
     icon: FileText,
     permission: 'view_reports',
+    badgeKey: 'reports',
   },
   {
     title: 'Staff Management',
     href: '/dashboard/staff',
     icon: UserCog,
-    permission: 'create_staff',
-    roles: ['super_admin', 'department_head'],
+    permissions: ['create_staff', 'view_staff_logs'], // Can access with either permission
   },
   {
     title: 'Departments',
@@ -124,6 +132,8 @@ export function Sidebar() {
   const pathname = usePathname();
   const { staff, isSuperAdmin, hasPermission } = useAuth();
   const { isOpen, close } = useSidebar();
+  const { badges, refreshBadges } = useNavBadges();
+  const { notifications } = useAdminNotifications();
 
   const isActive = (href: string) => {
     if (href === '/dashboard') {
@@ -136,19 +146,52 @@ export function Sidebar() {
     // Super admin has access to everything
     if (isSuperAdmin) return true;
 
+    // If no permission or role specified, allow access (e.g., Dashboard)
+    if (!item.permission && !item.permissions && !item.roles) return true;
+
+    // Check single permission
+    if (item.permission && hasPermission(item.permission)) {
+      return true;
+    }
+
+    // Check multiple permissions (OR logic - any one grants access)
+    if (item.permissions && item.permissions.some(p => hasPermission(p))) {
+      return true;
+    }
+
     // Check role-based access
     if (item.roles && staff?.role) {
       const roleString = staff.role; // StaffRole enum values are already strings
-      if (!item.roles.includes(roleString)) return false;
+      if (item.roles.includes(roleString)) {
+        return true;
+      }
     }
 
-    // Check permission-based access
-    if (item.permission) {
-      if (!hasPermission(item.permission)) return false;
-    }
-
-    return true;
+    // No access granted
+    return false;
   };
+
+  // Real-time badge updates - refresh badges when relevant notifications arrive
+  useEffect(() => {
+    if (notifications.length > 0) {
+      // Get the latest notification
+      const latestNotification = notifications[notifications.length - 1];
+
+      // Check if this notification should trigger a badge refresh
+      const shouldRefresh = [
+        'dispute_opened',
+        'dispute_escalated',
+        'content_flagged',
+        'report_submitted',
+        'system_alert', // Could be memo-related
+      ].some(type => latestNotification.type.includes(type) || latestNotification.type === type);
+
+      if (shouldRefresh) {
+        console.log('🔄 Refreshing nav badges due to notification:', latestNotification.type);
+        refreshBadges();
+      }
+    }
+  }, [notifications, refreshBadges]);
 
   return (
     <>
@@ -209,6 +252,8 @@ export function Sidebar() {
               const Icon = item.icon;
               const active = isActive(item.href);
 
+              const badgeCount = item.badgeKey ? badges[item.badgeKey] : 0;
+
               return (
                 <Link
                   key={item.href}
@@ -220,21 +265,32 @@ export function Sidebar() {
                     }
                   }}
                   className={cn(
-                    'group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors',
+                    'group flex items-center justify-between px-3 py-2 text-sm font-medium rounded-md transition-colors',
                     active
                       ? 'bg-primary text-primary-foreground'
                       : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                   )}
                 >
-                  <Icon
-                    className={cn(
-                      'mr-3 h-5 w-5 flex-shrink-0',
-                      active
-                        ? 'text-primary-foreground'
-                        : 'text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-300'
-                    )}
-                  />
-                  {item.title}
+                  <div className="flex items-center flex-1 min-w-0">
+                    <Icon
+                      className={cn(
+                        'mr-3 h-5 w-5 flex-shrink-0',
+                        active
+                          ? 'text-primary-foreground'
+                          : 'text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-300'
+                      )}
+                    />
+                    <span className="truncate">{item.title}</span>
+                  </div>
+                  
+                  {badgeCount > 0 && (
+                    <Badge 
+                      variant="destructive" 
+                      className="ml-2 h-5 min-w-[20px] px-1.5 text-[10px] font-semibold flex-shrink-0"
+                    >
+                      {badgeCount > 99 ? '99+' : badgeCount}
+                    </Badge>
+                  )}
                 </Link>
               );
             })}

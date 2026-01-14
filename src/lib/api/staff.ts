@@ -9,6 +9,11 @@ export interface CreateStaffRequest {
   role: StaffRole;
 }
 
+export interface ModifyStaffRequest {
+  departmentId?: string;
+  role?: StaffRole;
+}
+
 export const staffAPI = {
   /**
    * Staff login
@@ -78,6 +83,14 @@ export const staffAPI = {
    */
   deleteStaff: async (id: string, reason?: string): Promise<{ message: string }> => {
     return apiClient.delete<{ message: string }>(`/staff/${id}`, { data: { reason } });
+  },
+
+  /**
+   * Modify staff role or department (Super Admin Only)
+   * PATCH /staff/:id/modify
+   */
+  modifyStaff: async (id: string, data: ModifyStaffRequest): Promise<Staff> => {
+    return apiClient.patch<Staff>(`/staff/${id}/modify`, data);
   },
 
   /**
