@@ -57,6 +57,30 @@ export interface TimeSeriesData {
   [key: string]: string | number;
 }
 
+export interface AuctionAnalyticsSummary {
+  totalAuctions: number;
+  soldAuctions: number;
+  sellThroughRate: number;
+  totalAuctionRevenue: number;
+  averageBidsPerAuction: number;
+  averageUniqueBiddersPerAuction: number;
+  topCategories: Array<{
+    categoryId: string;
+    categoryName: string;
+    totalRevenue: number;
+    totalBids: number;
+  }>;
+  topAuctions: Array<{
+    auctionId: string;
+    title: string;
+    categoryName: string;
+    revenue: number;
+    totalBids: number;
+    uniqueBidders: number;
+    status: string;
+  }>;
+}
+
 export const analyticsAPI = {
   /**
    * Get platform statistics
@@ -105,5 +129,18 @@ export const analyticsAPI = {
     }
 
     return apiClient.get<TimeSeriesData[]>(`/admin/analytics/timeseries${params.toString() ? `?${params.toString()}` : ''}`);
+  },
+
+  /**
+   * Get auction analytics summary
+   * GET /admin/analytics/auctions/summary
+   */
+  getAuctionAnalyticsSummary: async (start?: string, end?: string): Promise<AuctionAnalyticsSummary> => {
+    const params = new URLSearchParams();
+    if (start) params.append('start', start);
+    if (end) params.append('end', end);
+
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return apiClient.get<AuctionAnalyticsSummary>(`/admin/analytics/auctions/summary${query}`);
   },
 };

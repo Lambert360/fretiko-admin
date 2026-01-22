@@ -15,13 +15,13 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { analyticsAPI, type PlatformStats, type AnalyticsSummary, type TimeSeriesData } from '@/lib/api/analytics';
+import { analyticsAPI, type PlatformStats, type AnalyticsSummary, type TimeSeriesData, type AuctionAnalyticsSummary } from '@/lib/api/analytics';
 import { InfoAlert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LineChart } from '@/components/charts/LineChart';
 import { EmptyState } from '@/components/ui/empty-state';
-import { BarChart3, TrendingUp, Users, ShoppingCart, DollarSign, AlertCircle, Calendar, Info } from 'lucide-react';
+import { BarChart3, TrendingUp, Users, ShoppingCart, DollarSign, AlertCircle, Calendar, Info, Gavel } from 'lucide-react';
 import { formatCurrency, formatNumber } from '@/lib/utils/formatting';
 
 export default function AnalyticsPage() {
@@ -29,6 +29,7 @@ export default function AnalyticsPage() {
   const [platformStats, setPlatformStats] = useState<PlatformStats | null>(null);
   const [analyticsSummary, setAnalyticsSummary] = useState<AnalyticsSummary | null>(null);
   const [timeSeriesData, setTimeSeriesData] = useState<TimeSeriesData[]>([]);
+  const [auctionAnalytics, setAuctionAnalytics] = useState<AuctionAnalyticsSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
@@ -52,15 +53,17 @@ export default function AnalyticsPage() {
       setIsLoading(true);
       setError(null);
       
-      const [stats, summary, timeSeries] = await Promise.all([
+      const [stats, summary, timeSeries, auctions] = await Promise.all([
         analyticsAPI.getPlatformStats(),
         analyticsAPI.getAnalyticsSummary(),
         analyticsAPI.getTimeSeries(dateRange.start, dateRange.end, period, new Date().getTimezoneOffset()),
+        analyticsAPI.getAuctionAnalyticsSummary(dateRange.start, dateRange.end),
       ]);
 
       setPlatformStats(stats);
       setAnalyticsSummary(summary);
       setTimeSeriesData(timeSeries);
+      setAuctionAnalytics(auctions);
     } catch (err: any) {
       console.error('Failed to fetch analytics:', err);
       setError(err.response?.data?.message || 'Failed to load analytics data');
@@ -273,6 +276,88 @@ export default function AnalyticsPage() {
                 )}
               </CardContent>
             </Card>
+
+              {/* Auction Analytics Summary */}
+              {auctionAnalytics && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      Auction Performance
+                      <Gavel className="h-4 w-4 text-muted-foreground" />
+                    </CardTitle>
+                    <CardDescription>Overview of live and timed auction performance</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                      <div>
+                        <div className="text-sm text-muted-foreground">Total Auctions</div>
+                        <div className="text-2xl font-bold">{formatNumber(auctionAnalytics.totalAuctions)}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Sold Auctions</div>
+                        <div className="text-2xl font-bold">{formatNumber(auctionAnalytics.soldAuctions)}</div>
+                        <div className="text-xs text-green-600 mt-1">
+                          {auctionAnalytics.sellThroughRate.toFixed(1)}% sell-through
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Avg Bids / Auction</div>
+                        <div className="text-2xl font-bold">
+                          {auctionAnalytics.averageBidsPerAuction.toFixed(1)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Auction Revenue</div>
+                        <div className="text-2xl font-bold">
+                          {formatCurrency(auctionAnalytics.totalAuctionRevenue)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Top Auctions Table (compact) */}
+                    <div className="mt-6">
+                      <h3 className="text-sm font-semibold mb-2">Top Auctions</h3>
+                      {auctionAnalytics.topAuctions.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No auction data for this period.</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-border">
+                                <th className="text-left py-2 pr-4">Title</th>
+                                <th className="text-right py-2 pr-4">Revenue</th>
+                                <th className="text-right py-2 pr-4">Bids</th>
+                                <th className="text-right py-2">Bidders</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {auctionAnalytics.topAuctions.slice(0, 5).map((auction) => (
+                                <tr key={auction.auctionId} className="border-b border-border/50">
+                                  <td className="py-2 pr-4">
+                                    <div className="font-medium line-clamp-1">{auction.title}</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {auction.categoryName || 'Uncategorised'}
+                                    </div>
+                                  </td>
+                                  <td className="py-2 pr-4 text-right">
+                                    {formatCurrency(auction.revenue)}
+                                  </td>
+                                  <td className="py-2 pr-4 text-right">
+                                    {formatNumber(auction.totalBids)}
+                                  </td>
+                                  <td className="py-2 text-right">
+                                    {formatNumber(auction.uniqueBidders)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
           </div>
 
           {/* Analytics Summary */}

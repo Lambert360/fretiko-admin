@@ -16,7 +16,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { financeAPI, type RevenueStats, type EscrowHealth, type Payout, type Deposit, type TotalPlatformFunds, type UserBalance, type PlatformWallet, type BankAccount, type CreateBankAccountDto, type UpdateBankAccountDto, type WithdrawRequestDto, type PlatformWithdrawal } from '@/lib/api/finance';
+import { financeAPI, type RevenueStats, type EscrowHealth, type Payout, type Deposit, type TotalPlatformFunds, type UserBalance, type PlatformWallet, type BankAccount, type CreateBankAccountDto, type UpdateBankAccountDto, type WithdrawRequestDto, type PlatformWithdrawal, type GiftStats, type UserGiftHolding, type VirtualGift, type CreateGiftDto, type UpdateGiftDto } from '@/lib/api/finance';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -44,7 +44,7 @@ import {
 const FinancePage = () => {
   const { isSuperAdmin, hasPermission } = useAuth();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<'revenue' | 'escrow' | 'payouts' | 'deposits' | 'user-balances' | 'platform-wallet'>('revenue');
+  const [activeTab, setActiveTab] = useState<'revenue' | 'escrow' | 'payouts' | 'deposits' | 'user-balances' | 'platform-wallet' | 'gift-wallet'>('revenue');
   const [revenueStats, setRevenueStats] = useState<RevenueStats | null>(null);
   const [escrowHealth, setEscrowHealth] = useState<EscrowHealth | null>(null);
   const [payouts, setPayouts] = useState<Payout[]>([]);
@@ -101,6 +101,25 @@ const FinancePage = () => {
     bankAccountId: '',
   });
 
+  // Gift wallet states
+  const [giftStats, setGiftStats] = useState<GiftStats | null>(null);
+  const [userGiftHoldings, setUserGiftHoldings] = useState<UserGiftHolding[]>([]);
+  const [giftHoldingsSearchQuery, setGiftHoldingsSearchQuery] = useState('');
+  const [giftHoldingsPage, setGiftHoldingsPage] = useState(1);
+  const [giftHoldingsTotal, setGiftHoldingsTotal] = useState(0);
+
+  // Gift management states
+  const [allGifts, setAllGifts] = useState<VirtualGift[]>([]);
+  const [giftManagementDialog, setGiftManagementDialog] = useState<{ open: boolean; gift: VirtualGift | null; mode: 'create' | 'edit' }>({ open: false, gift: null, mode: 'create' });
+  const [deleteGiftDialog, setDeleteGiftDialog] = useState<{ open: boolean; gift: VirtualGift | null }>({ open: false, gift: null });
+  const [giftForm, setGiftForm] = useState<CreateGiftDto>({
+    name: '',
+    emoji: '',
+    credit_value: 0,
+    sort_order: 0,
+    is_active: true,
+  });
+
   const canViewFinance = isSuperAdmin || hasPermission('view_revenue');
 
   useEffect(() => {
@@ -120,9 +139,13 @@ const FinancePage = () => {
         fetchPlatformWallet();
         fetchPlatformBankAccounts();
         fetchPlatformWithdrawals();
+      } else if (activeTab === 'gift-wallet') {
+        fetchGiftWalletStats();
+        fetchUserGiftHoldings();
+        fetchAllGifts();
       }
     }
-  }, [canViewFinance, activeTab, dateRange, payoutStatusFilter, depositStatusFilter, depositPaymentMethodFilter, depositSearchQuery, userBalanceSearchQuery, page]);
+  }, [canViewFinance, activeTab, dateRange, payoutStatusFilter, depositStatusFilter, depositPaymentMethodFilter, depositSearchQuery, userBalanceSearchQuery, giftHoldingsSearchQuery, page, giftHoldingsPage]);
 
   const fetchRevenue = async () => {
     try {
@@ -483,6 +506,148 @@ const FinancePage = () => {
     return formatCurrency(amount);
   };
 
+  const fetchGiftWalletStats = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const stats = await financeAPI.getGiftWalletStats();
+      setGiftStats(stats);
+    } catch (err: any) {
+      console.error('Failed to fetch gift wallet stats:', err);
+      const errorMessage = err.response?.data?.message || 'Failed to load gift wallet statistics';
+      setError(errorMessage);
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchUserGiftHoldings = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const response = await financeAPI.getUserGiftHoldings({
+        search: giftHoldingsSearchQuery || undefined,
+        page: giftHoldingsPage,
+        limit,
+      });
+      setUserGiftHoldings(response.users);
+      setGiftHoldingsTotal(response.total);
+    } catch (err: any) {
+      console.error('Failed to fetch user gift holdings:', err);
+      const errorMessage = err.response?.data?.message || 'Failed to load user gift holdings';
+      setError(errorMessage);
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchAllGifts = async () => {
+    try {
+      const gifts = await financeAPI.getAllGifts();
+      setAllGifts(gifts);
+    } catch (err: any) {
+      console.error('Failed to fetch gifts:', err);
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to load gifts',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleCreateGift = async () => {
+    try {
+      setIsActionLoading('create-gift');
+      await financeAPI.createGift(giftForm);
+      toast({
+        title: 'Success',
+        description: 'Gift created successfully',
+      });
+      setGiftManagementDialog({ open: false, gift: null, mode: 'create' });
+      setGiftForm({ name: '', emoji: '', credit_value: 0, sort_order: 0, is_active: true });
+      await fetchAllGifts();
+    } catch (err: any) {
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to create gift',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsActionLoading(null);
+    }
+  };
+
+  const handleUpdateGift = async () => {
+    if (!giftManagementDialog.gift) return;
+    try {
+      setIsActionLoading(`update-gift-${giftManagementDialog.gift.id}`);
+      await financeAPI.updateGift(giftManagementDialog.gift.id, giftForm);
+      toast({
+        title: 'Success',
+        description: 'Gift updated successfully',
+      });
+      setGiftManagementDialog({ open: false, gift: null, mode: 'create' });
+      setGiftForm({ name: '', emoji: '', credit_value: 0, sort_order: 0, is_active: true });
+      await fetchAllGifts();
+    } catch (err: any) {
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to update gift',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsActionLoading(null);
+    }
+  };
+
+  const handleDeleteGift = async () => {
+    if (!deleteGiftDialog.gift) return;
+    try {
+      setIsActionLoading(`delete-gift-${deleteGiftDialog.gift.id}`);
+      await financeAPI.deleteGift(deleteGiftDialog.gift.id);
+      toast({
+        title: 'Success',
+        description: 'Gift deleted successfully',
+      });
+      setDeleteGiftDialog({ open: false, gift: null });
+      await fetchAllGifts();
+    } catch (err: any) {
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to delete gift',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsActionLoading(null);
+    }
+  };
+
+  const openCreateGiftDialog = () => {
+    setGiftForm({ name: '', emoji: '', credit_value: 0, sort_order: 0, is_active: true });
+    setGiftManagementDialog({ open: true, gift: null, mode: 'create' });
+  };
+
+  const openEditGiftDialog = (gift: VirtualGift) => {
+    setGiftForm({
+      name: gift.name,
+      emoji: gift.emoji,
+      credit_value: gift.credit_value,
+      sort_order: gift.sort_order,
+      is_active: gift.is_active,
+    });
+    setGiftManagementDialog({ open: true, gift, mode: 'edit' });
+  };
+
   const getStatusBadge = (status: Payout['status']) => {
     const variants: Record<Payout['status'], { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
       requested: { variant: 'outline', label: 'Requested' },
@@ -649,6 +814,19 @@ const FinancePage = () => {
           >
             Platform Wallet
           </button>
+          <button
+            onClick={() => {
+              setActiveTab('gift-wallet');
+              setPage(1);
+            }}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'gift-wallet'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Gift Wallet
+          </button>
         </nav>
       </div>
 
@@ -664,9 +842,16 @@ const FinancePage = () => {
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{formatAmount((revenueStats as any)?.realizedRevenue || 0)}</div>
+                  <div className="text-2xl font-bold">
+                    {formatAmount(
+                      Object.values((revenueStats as any)?.revenueBySource || {}).reduce(
+                        (sum: number, amount: any) => sum + (typeof amount === 'number' ? amount : 0),
+                        0
+                      )
+                    )}
+                  </div>
                   <p className="text-xs text-muted-foreground">
-                    Realized revenue from released escrows
+                    Sum of all revenue streams
                   </p>
                 </CardContent>
               </Card>
@@ -722,11 +907,28 @@ const FinancePage = () => {
                     <div key={source} className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
                         <div className="w-3 h-3 rounded-full bg-primary" />
-                        <span className="text-sm font-medium capitalize">{source}</span>
+                        <span className="text-sm font-medium capitalize">{source.replace(/_/g, ' ')}</span>
                       </div>
                       <div className="text-sm font-medium">{formatAmount(amount as number)}</div>
                     </div>
                   ))}
+                  {/* Total Revenue from All Sources */}
+                  {Object.keys((revenueStats as any)?.revenueBySource || {}).length > 0 && (
+                    <div className="flex items-center justify-between pt-4 border-t">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-3 h-3 rounded-full bg-primary" />
+                        <span className="text-sm font-semibold">Total from All Sources</span>
+                      </div>
+                      <div className="text-sm font-bold">
+                        {formatAmount(
+                          Object.values((revenueStats as any)?.revenueBySource || {}).reduce(
+                            (sum: number, amount: any) => sum + (typeof amount === 'number' ? amount : 0),
+                            0
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -1288,7 +1490,7 @@ const FinancePage = () => {
                   <Wallet className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{formatAmount((platformWallet as any)?.availableBalance || 0)}</div>
+                  <div className="text-2xl font-bold">{formatAmount(platformWallet?.wallet?.availableBalance || 0)}</div>
                   <p className="text-xs text-muted-foreground">
                     Ready for withdrawal
                   </p>
@@ -1300,7 +1502,7 @@ const FinancePage = () => {
                   <Clock className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{formatAmount((platformWallet as any)?.pendingBalance || 0)}</div>
+                  <div className="text-2xl font-bold">{formatAmount(platformWallet?.wallet?.pendingWithdrawal || 0)}</div>
                   <p className="text-xs text-muted-foreground">
                     In escrow or processing
                   </p>
@@ -1312,7 +1514,7 @@ const FinancePage = () => {
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{formatAmount((platformWallet as any)?.totalBalance || 0)}</div>
+                  <div className="text-2xl font-bold">{formatAmount((platformWallet?.wallet?.availableBalance || 0) + (platformWallet?.wallet?.escrowBalance || 0))}</div>
                   <p className="text-xs text-muted-foreground">
                     Available + pending
                   </p>
@@ -1340,10 +1542,10 @@ const FinancePage = () => {
                 onClick={() => setWithdrawDialog(true)}
                 size="lg"
                 className="bg-green-600 hover:bg-green-700"
-                disabled={(platformWallet as any)?.availableBalance <= 0}
+                disabled={(platformWallet?.wallet?.availableBalance || 0) <= 0}
               >
                 <ArrowUpCircle className="h-5 w-5 mr-2" />
-                Withdraw Funds {(platformWallet as any)?.availableBalance > 0 && `($${formatAmount((platformWallet as any).availableBalance)})`}
+                Withdraw Funds {(platformWallet?.wallet?.availableBalance || 0) > 0 && `(${formatAmount(platformWallet?.wallet?.availableBalance || 0)})`}
               </Button>
             </div>
           )}
@@ -1835,7 +2037,7 @@ const FinancePage = () => {
               />
               {platformWallet && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  Available: {formatAmount((platformWallet as any)?.availableBalance || 0)}
+                  Available: {formatAmount(platformWallet?.wallet?.availableBalance || 0)}
                 </p>
               )}
             </div>
@@ -1871,7 +2073,7 @@ const FinancePage = () => {
                 isActionLoading === 'withdraw' ||
                 !withdrawForm.bankAccountId ||
                 withdrawForm.fretiAmount <= 0 ||
-                (platformWallet && withdrawForm.fretiAmount > (platformWallet as any).availableBalance) ||
+                (platformWallet && withdrawForm.fretiAmount > (platformWallet?.wallet?.availableBalance || 0)) ||
                 platformBankAccounts.filter(acc => acc.isActive && acc.isVerified).length === 0
               }
             >
@@ -1883,6 +2085,372 @@ const FinancePage = () => {
               ) : (
                 'Create Withdrawal Request'
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Gift Wallet Tab */}
+      {activeTab === 'gift-wallet' && (
+        <div className="space-y-6">
+          {/* Gift Wallet Stats */}
+          {giftStats && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Platform Gift Wallet</CardTitle>
+                  <Wallet className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatAmount(giftStats.platformGiftWalletBalance)}</div>
+                  <p className="text-xs text-muted-foreground">Available balance</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Gift Value</CardTitle>
+                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatAmount(giftStats.totalGiftValue)}</div>
+                  <p className="text-xs text-muted-foreground">In circulation</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Gifts</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{giftStats.totalGiftsInCirculation.toLocaleString()}</div>
+                  <p className="text-xs text-muted-foreground">Gifts in circulation</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Users with Gifts</CardTitle>
+                  <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{giftStats.totalUsersWithGifts.toLocaleString()}</div>
+                  <p className="text-xs text-muted-foreground">Active gift holders</p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Top Gifts */}
+          {giftStats && giftStats.topGifts.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Top Gifts by Quantity</CardTitle>
+                <CardDescription>Most popular gifts in circulation</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {giftStats.topGifts.map((gift, index) => (
+                    <div key={gift.gift_id} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">{gift.emoji}</span>
+                        <div>
+                          <p className="font-medium">{gift.gift_name}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {gift.total_quantity.toLocaleString()} gifts • {formatAmount(gift.total_value)}
+                          </p>
+                        </div>
+                      </div>
+                      <Badge variant="outline">#{index + 1}</Badge>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* User Gift Holdings */}
+          <Card>
+            <CardHeader>
+              <CardTitle>User Gift Holdings</CardTitle>
+              <CardDescription>View gift collections by user</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {/* Search */}
+              <div className="mb-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by user ID..."
+                    value={giftHoldingsSearchQuery}
+                    onChange={(e) => {
+                      setGiftHoldingsSearchQuery(e.target.value);
+                      setGiftHoldingsPage(1);
+                    }}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              {/* Holdings Table */}
+              {isLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+              ) : userGiftHoldings.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No gift holdings found
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {userGiftHoldings.map((holding) => (
+                    <Card key={holding.user_id} className="border">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <p className="font-medium">User ID: {holding.user_id}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {holding.total_gifts.toLocaleString()} gifts • {formatAmount(holding.total_value)} total value
+                            </p>
+                          </div>
+                          <Badge variant="secondary">{formatAmount(holding.total_value)}</Badge>
+                        </div>
+                        <div className="mt-3 pt-3 border-t">
+                          <p className="text-sm font-medium mb-2">Gift Breakdown:</p>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                            {holding.gift_breakdown.map((gift) => (
+                              <div key={gift.gift_id} className="flex items-center gap-2 p-2 bg-muted rounded">
+                                <span className="text-lg">{gift.emoji}</span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium truncate">{gift.gift_name}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {gift.quantity}x • {formatAmount(gift.value)}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              {/* Pagination */}
+              {giftHoldingsTotal > limit && (
+                <div className="flex items-center justify-between mt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {((giftHoldingsPage - 1) * limit) + 1} to {Math.min(giftHoldingsPage * limit, giftHoldingsTotal)} of {giftHoldingsTotal} users
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setGiftHoldingsPage(prev => Math.max(1, prev - 1))}
+                      disabled={giftHoldingsPage === 1 || isLoading}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setGiftHoldingsPage(prev => prev + 1)}
+                      disabled={giftHoldingsPage * limit >= giftHoldingsTotal || isLoading}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Gift Management */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Gift Catalogue Management</CardTitle>
+                  <CardDescription>Create, edit, and manage virtual gifts</CardDescription>
+                </div>
+                <Button onClick={openCreateGiftDialog}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Gift
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {allGifts.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No gifts found. Create your first gift!
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {allGifts.map((gift) => (
+                    <div key={gift.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="flex items-center gap-4">
+                        <span className="text-3xl">{gift.emoji}</span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium">{gift.name}</p>
+                            {!gift.is_active && (
+                              <Badge variant="secondary">Inactive</Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            Credit Value: {formatAmount(gift.credit_value)} • Sort Order: {gift.sort_order}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openEditGiftDialog(gift)}
+                        >
+                          <Edit className="h-4 w-4 mr-2" />
+                          Edit
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setDeleteGiftDialog({ open: true, gift })}
+                          disabled={isActionLoading === `delete-gift-${gift.id}`}
+                        >
+                          {isActionLoading === `delete-gift-${gift.id}` ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <>
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Gift Management Dialog */}
+      <Dialog open={giftManagementDialog.open} onOpenChange={(open) => setGiftManagementDialog({ ...giftManagementDialog, open })}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{giftManagementDialog.mode === 'create' ? 'Create New Gift' : 'Edit Gift'}</DialogTitle>
+            <DialogDescription>
+              {giftManagementDialog.mode === 'create' 
+                ? 'Add a new virtual gift to the marketplace'
+                : 'Update gift details'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <Label htmlFor="gift-name">Name</Label>
+              <Input
+                id="gift-name"
+                value={giftForm.name}
+                onChange={(e) => setGiftForm({ ...giftForm, name: e.target.value })}
+                placeholder="e.g., Heart, Fire, Applause"
+              />
+            </div>
+            <div>
+              <Label htmlFor="gift-emoji">Emoji</Label>
+              <Input
+                id="gift-emoji"
+                value={giftForm.emoji}
+                onChange={(e) => setGiftForm({ ...giftForm, emoji: e.target.value })}
+                placeholder="e.g., ❤️, 🔥, 👏"
+                maxLength={10}
+              />
+            </div>
+            <div>
+              <Label htmlFor="gift-credit-value">Credit Value</Label>
+              <Input
+                id="gift-credit-value"
+                type="number"
+                min="1"
+                value={giftForm.credit_value}
+                onChange={(e) => setGiftForm({ ...giftForm, credit_value: parseInt(e.target.value) || 0 })}
+                placeholder="e.g., 10"
+              />
+            </div>
+            <div>
+              <Label htmlFor="gift-sort-order">Sort Order</Label>
+              <Input
+                id="gift-sort-order"
+                type="number"
+                value={giftForm.sort_order}
+                onChange={(e) => setGiftForm({ ...giftForm, sort_order: parseInt(e.target.value) || 0 })}
+                placeholder="e.g., 0"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="gift-active"
+                checked={giftForm.is_active}
+                onChange={(e) => setGiftForm({ ...giftForm, is_active: e.target.checked })}
+                className="rounded"
+              />
+              <Label htmlFor="gift-active">Active (visible in marketplace)</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setGiftManagementDialog({ open: false, gift: null, mode: 'create' })}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={giftManagementDialog.mode === 'create' ? handleCreateGift : handleUpdateGift}
+              disabled={!giftForm.name || !giftForm.emoji || giftForm.credit_value <= 0 || isActionLoading !== null}
+            >
+              {isActionLoading && (isActionLoading === 'create-gift' || isActionLoading.startsWith('update-gift-')) ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
+              {giftManagementDialog.mode === 'create' ? 'Create Gift' : 'Update Gift'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Gift Confirmation Dialog */}
+      <Dialog open={deleteGiftDialog.open} onOpenChange={(open) => setDeleteGiftDialog({ ...deleteGiftDialog, open })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Gift</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{deleteGiftDialog.gift?.name}"? This action cannot be undone.
+              {deleteGiftDialog.gift && (
+                <span className="block mt-2 text-sm text-muted-foreground">
+                  Note: If users still own this gift, deletion will fail. Consider deactivating it instead.
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteGiftDialog({ open: false, gift: null })}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteGift}
+              disabled={isActionLoading !== null && isActionLoading.startsWith('delete-gift-')}
+            >
+              {isActionLoading && isActionLoading.startsWith('delete-gift-') ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
+              Delete
             </Button>
           </DialogFooter>
         </DialogContent>

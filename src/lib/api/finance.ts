@@ -18,6 +18,7 @@ export interface RevenueStats {
     invoice: number;
     wishlist: number;
     logistics: number;
+    gifts: number; // Platform revenue from gift conversions
   };
   topVendors: Array<{
     vendorId: string;
@@ -251,6 +252,67 @@ export interface PaginatedPlatformWithdrawals {
   };
 }
 
+export interface GiftStats {
+  totalGiftValue: number;
+  totalGiftsInCirculation: number;
+  totalUsersWithGifts: number;
+  platformGiftWalletBalance: number;
+  topGifts: Array<{
+    gift_id: string;
+    gift_name: string;
+    emoji: string;
+    total_quantity: number;
+    total_value: number;
+  }>;
+}
+
+export interface UserGiftHolding {
+  user_id: string;
+  total_gifts: number;
+  total_value: number;
+  gift_breakdown: Array<{
+    gift_id: string;
+    gift_name: string;
+    emoji: string;
+    quantity: number;
+    value: number;
+  }>;
+}
+
+export interface UserGiftHoldingsResponse {
+  users: UserGiftHolding[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface VirtualGift {
+  id: string;
+  name: string;
+  emoji: string;
+  credit_value: number;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateGiftDto {
+  name: string;
+  emoji: string;
+  credit_value: number;
+  sort_order?: number;
+  is_active?: boolean;
+}
+
+export interface UpdateGiftDto {
+  name?: string;
+  emoji?: string;
+  credit_value?: number;
+  sort_order?: number;
+  is_active?: boolean;
+}
+
 export const financeAPI = {
   /**
    * Get platform revenue analytics
@@ -399,6 +461,63 @@ export const financeAPI = {
     params.append('limit', limit.toString());
     
     return apiClient.get<PaginatedPlatformWithdrawals>(`/admin/platform/withdrawals?${params.toString()}`);
+  },
+
+  /**
+   * Get gift wallet statistics
+   * GET /admin/finance/gift-wallet
+   */
+  getGiftWalletStats: async (): Promise<GiftStats> => {
+    return apiClient.get<GiftStats>('/admin/finance/gift-wallet');
+  },
+
+  /**
+   * Get user gift holdings
+   * GET /admin/finance/gift-wallet/holdings?page=1&limit=20&search=
+   */
+  getUserGiftHoldings: async (filters?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+  }): Promise<UserGiftHoldingsResponse> => {
+    const params = new URLSearchParams();
+    if (filters?.page) params.append('page', filters.page.toString());
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+    if (filters?.search) params.append('search', filters.search);
+
+    return apiClient.get<UserGiftHoldingsResponse>(`/admin/finance/gift-wallet/holdings${params.toString() ? `?${params.toString()}` : ''}`);
+  },
+
+  /**
+   * Get all gifts (including inactive) for admin management
+   * GET /gifts/admin/all
+   */
+  getAllGifts: async (): Promise<VirtualGift[]> => {
+    return apiClient.get<VirtualGift[]>('/gifts/admin/all');
+  },
+
+  /**
+   * Create a new gift
+   * POST /gifts/admin
+   */
+  createGift: async (dto: CreateGiftDto): Promise<VirtualGift> => {
+    return apiClient.post<VirtualGift>('/gifts/admin', dto);
+  },
+
+  /**
+   * Update a gift
+   * PUT /gifts/admin/:id
+   */
+  updateGift: async (id: string, dto: UpdateGiftDto): Promise<VirtualGift> => {
+    return apiClient.put<VirtualGift>(`/gifts/admin/${id}`, dto);
+  },
+
+  /**
+   * Delete a gift
+   * DELETE /gifts/admin/:id
+   */
+  deleteGift: async (id: string): Promise<{ success: boolean; message: string }> => {
+    return apiClient.delete<{ success: boolean; message: string }>(`/gifts/admin/${id}`);
   },
 };
 
