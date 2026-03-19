@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Search, Truck, Package, Clock, CheckCircle, AlertCircle, MapPin, User, Star, Eye, Loader2, MoreVertical } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import AdminAnalytics from '@/components/AdminAnalytics';
 import {
   Dialog,
   DialogContent,
@@ -40,7 +41,7 @@ import {
 export default function LogisticsPage() {
   const { isSuperAdmin, hasPermission } = useAuth();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<'riders' | 'deliveries'>('riders');
+  const [activeTab, setActiveTab] = useState<'riders' | 'deliveries' | 'analytics'>('riders');
   const [stats, setStats] = useState<LogisticsStats | null>(null);
   const [riders, setRiders] = useState<Rider[]>([]);
   const [dialogRiders, setDialogRiders] = useState<Rider[]>([]); // Separate list for dialog dropdown
@@ -368,55 +369,70 @@ export default function LogisticsPage() {
           >
             Deliveries ({stats?.totalDeliveries || 0})
           </button>
+          <button
+            onClick={() => {
+              setActiveTab('analytics');
+              setPage(1);
+            }}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'analytics'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Rider Analytics
+          </button>
         </nav>
       </div>
 
       {/* Search and Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder={`Search ${activeTab}...`}
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setPage(1);
-            }}
-            className="pl-10"
-          />
+      {activeTab !== 'analytics' && (
+        <div className="flex flex-col sm:flex-row gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder={`Search ${activeTab}...`}
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
+              className="pl-10"
+            />
+          </div>
+          {activeTab === 'riders' ? (
+            <select
+              value={riderStatusFilter}
+              onChange={(e) => {
+                setRiderStatusFilter(e.target.value as any);
+                setPage(1);
+              }}
+              className="px-3 py-2 border rounded-md bg-background"
+            >
+              <option value="all">All Status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          ) : (
+            <select
+              value={deliveryStatusFilter}
+              onChange={(e) => {
+                setDeliveryStatusFilter(e.target.value as any);
+                setPage(1);
+              }}
+              className="px-3 py-2 border rounded-md bg-background"
+            >
+              <option value="all">All Status</option>
+              <option value="pending">Pending</option>
+              <option value="assigned">Assigned</option>
+              <option value="picked_up">Picked Up</option>
+              <option value="in_transit">In Transit</option>
+              <option value="delivered">Delivered</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          )}
         </div>
-        {activeTab === 'riders' ? (
-          <select
-            value={riderStatusFilter}
-            onChange={(e) => {
-              setRiderStatusFilter(e.target.value as any);
-              setPage(1);
-            }}
-            className="px-3 py-2 border rounded-md bg-background"
-          >
-            <option value="all">All Status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
-        ) : (
-          <select
-            value={deliveryStatusFilter}
-            onChange={(e) => {
-              setDeliveryStatusFilter(e.target.value as any);
-              setPage(1);
-            }}
-            className="px-3 py-2 border rounded-md bg-background"
-          >
-            <option value="all">All Status</option>
-            <option value="pending">Pending</option>
-            <option value="assigned">Assigned</option>
-            <option value="picked_up">Picked Up</option>
-            <option value="in_transit">In Transit</option>
-            <option value="delivered">Delivered</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-        )}
-      </div>
+      )}
 
       {/* Error Message */}
       {error && (
@@ -500,7 +516,7 @@ export default function LogisticsPage() {
             )}
           </CardContent>
         </Card>
-      ) : (
+      ) : activeTab === 'deliveries' ? (
         <Card>
           <CardHeader>
             <CardTitle>Deliveries</CardTitle>
@@ -603,10 +619,12 @@ export default function LogisticsPage() {
             )}
           </CardContent>
         </Card>
-      )}
-
-      {/* Pagination */}
-      {total > limit && (
+      ) : activeTab === 'analytics' ? (
+        <AdminAnalytics />
+      ) : null}
+      
+      {/* Pagination - Only show for riders and deliveries tabs */}
+      {activeTab !== 'analytics' && total > limit && (
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
             Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} results
