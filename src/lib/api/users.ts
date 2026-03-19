@@ -7,7 +7,7 @@ import { apiClient } from './client';
 
 export interface User {
   id: string;
-  username: string;
+  username: string | null;
   email: string;
   fullName?: string;
   userRole: 'citizen' | 'vendor' | 'rider';
@@ -45,7 +45,7 @@ export interface UserFilters {
 export const usersAPI = {
   /**
    * Get all users with filters
-   * GET /admin/users
+   * GET /dashboard/users
    */
   getAllUsers: async (filters?: UserFilters): Promise<UserListResponse> => {
     const params = new URLSearchParams();
@@ -56,7 +56,7 @@ export const usersAPI = {
     if (filters?.limit) params.append('limit', filters.limit.toString());
 
     const queryString = params.toString();
-    return apiClient.get<UserListResponse>(`/admin/users${queryString ? `?${queryString}` : ''}`);
+    return apiClient.get<UserListResponse>(`/dashboard/users${queryString ? `?${queryString}` : ''}`);
   },
 
   /**

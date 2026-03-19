@@ -5,6 +5,90 @@ import { apiClient } from './client';
  * Handles revenue tracking and financial analytics
  */
 
+// ✅ NEW: Enhanced Analytics Interfaces
+
+export interface RegionalRevenueResponse {
+  period: string;
+  startDate: string;
+  endDate: string;
+  regions: Array<{
+    country: string;
+    region: string;
+    volume: number;
+    users: number;
+    transactions: number;
+    growth: number;
+  }>;
+  totalVolume: number;
+  totalUsers: number;
+}
+
+export interface ProviderPerformanceResponse {
+  period: string;
+  startDate: string;
+  endDate: string;
+  providers: Array<{
+    name: string;
+    totalTransactions: number;
+    successfulTransactions: number;
+    failedTransactions: number;
+    totalVolume: number;
+    successRate: number;
+    avgResponseTime: number;
+  }>;
+  summary: {
+    totalTransactions: number;
+    totalVolume: number;
+    avgSuccessRate: number;
+  };
+}
+
+export interface TransactionPatternsResponse {
+  period: string;
+  startDate: string;
+  endDate: string;
+  peakHours: number[];
+  avgDeposit: number;
+  monthlyGrowth: number;
+  hourlyDistribution: number[];
+  dailyDistribution: number[];
+  transactionTypes: Record<string, number>;
+  preferredCurrency: string;
+  summary: {
+    totalTransactions: number;
+    totalVolume: number;
+    avgTransactionSize: number;
+  };
+}
+
+export interface EnhancedRevenueSummary {
+  period: string;
+  startDate: string;
+  endDate: string;
+  revenue: {
+    totalDeposits: number;
+    totalWithdrawals: number;
+    netRevenue: number;
+    fees: number;
+    netFees: number;
+  };
+  transactions: {
+    totalDeposits: number;
+    totalWithdrawals: number;
+    successRate: number;
+  };
+  growth: {
+    monthlyGrowth: number;
+    userGrowth: number;
+    transactionGrowth: number;
+  };
+  users: {
+    activeUsers: number;
+    newUsers: number;
+    retentionRate: number;
+  };
+}
+
 export interface RevenueStats {
   totalPlatformFees: number;
   realizedRevenue: number;
@@ -494,6 +578,76 @@ export const financeAPI = {
    */
   getAllGifts: async (): Promise<VirtualGift[]> => {
     return apiClient.get<VirtualGift[]>('/gifts/admin/all');
+  },
+
+  // ✅ NEW: Enhanced Analytics API Methods
+
+  /**
+   * Get regional revenue breakdown
+   * GET /admin/finance/regional-revenue?period=monthly&startDate=2024-01-01&endDate=2024-12-31
+   */
+  getRegionalRevenue: async (options?: {
+    period?: 'daily' | 'weekly' | 'monthly' | 'yearly';
+    startDate?: string;
+    endDate?: string;
+  }): Promise<RegionalRevenueResponse> => {
+    const params = new URLSearchParams();
+    if (options?.period) params.append('period', options.period);
+    if (options?.startDate) params.append('startDate', options.startDate);
+    if (options?.endDate) params.append('endDate', options.endDate);
+
+    return apiClient.get<RegionalRevenueResponse>(`/admin/finance/regional-revenue${params.toString() ? `?${params.toString()}` : ''}`);
+  },
+
+  /**
+   * Get payment provider performance metrics
+   * GET /admin/finance/provider-performance?period=monthly&startDate=2024-01-01&endDate=2024-12-31
+   */
+  getProviderPerformance: async (options?: {
+    period?: 'daily' | 'weekly' | 'monthly' | 'yearly';
+    startDate?: string;
+    endDate?: string;
+  }): Promise<ProviderPerformanceResponse> => {
+    const params = new URLSearchParams();
+    if (options?.period) params.append('period', options.period);
+    if (options?.startDate) params.append('startDate', options.startDate);
+    if (options?.endDate) params.append('endDate', options.endDate);
+
+    return apiClient.get<ProviderPerformanceResponse>(`/admin/finance/provider-performance${params.toString() ? `?${params.toString()}` : ''}`);
+  },
+
+  /**
+   * Get transaction pattern analysis
+   * GET /admin/finance/transaction-patterns?period=monthly&startDate=2024-01-01&endDate=2024-12-31
+   */
+  getTransactionPatterns: async (options?: {
+    period?: 'daily' | 'weekly' | 'monthly' | 'yearly';
+    startDate?: string;
+    endDate?: string;
+  }): Promise<TransactionPatternsResponse> => {
+    const params = new URLSearchParams();
+    if (options?.period) params.append('period', options.period);
+    if (options?.startDate) params.append('startDate', options.startDate);
+    if (options?.endDate) params.append('endDate', options.endDate);
+
+    return apiClient.get<TransactionPatternsResponse>(`/admin/finance/transaction-patterns${params.toString() ? `?${params.toString()}` : ''}`);
+  },
+
+  /**
+   * Get enhanced revenue summary
+   * GET /admin/finance/revenue-summary?period=monthly&startDate=2024-01-01&endDate=2024-12-31
+   */
+  getRevenueSummary: async (options?: {
+    period?: 'daily' | 'weekly' | 'monthly' | 'yearly';
+    startDate?: string;
+    endDate?: string;
+  }): Promise<EnhancedRevenueSummary> => {
+    const params = new URLSearchParams();
+    if (options?.period) params.append('period', options.period);
+    if (options?.startDate) params.append('startDate', options.startDate);
+    if (options?.endDate) params.append('endDate', options.endDate);
+
+    return apiClient.get<EnhancedRevenueSummary>(`/admin/finance/revenue-summary${params.toString() ? `?${params.toString()}` : ''}`);
   },
 
   /**

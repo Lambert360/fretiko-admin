@@ -166,7 +166,7 @@ export default function UsersPage() {
       setSelectedUser(null);
       toast({
         title: 'Success',
-        description: `${selectedUser.fullName || selectedUser.username} has been suspended successfully`,
+        description: `${selectedUser.fullName || selectedUser.username || 'User'} has been suspended successfully`,
       });
     } catch (err: any) {
       toast({
@@ -221,7 +221,7 @@ export default function UsersPage() {
       setSelectedUser(null);
       toast({
         title: 'Success',
-        description: `${selectedUser.fullName || selectedUser.username} has been deleted successfully`,
+        description: `${selectedUser.fullName || selectedUser.username || 'User'} has been deleted successfully`,
       });
     } catch (err: any) {
       toast({
@@ -295,7 +295,7 @@ export default function UsersPage() {
       setWarnSeverity('medium');
       toast({
         title: 'Success',
-        description: `Warning issued to ${selectedUser.fullName || selectedUser.username}`,
+        description: `Warning issued to ${selectedUser.fullName || selectedUser.username || 'User'}`,
       });
     } catch (err: any) {
       toast({
@@ -321,7 +321,7 @@ export default function UsersPage() {
   const filteredUsers = users.filter(user => {
     const matchesSearch =
       !searchQuery ||
-      user.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (user.username && user.username.toLowerCase().includes(searchQuery.toLowerCase())) ||
       user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (user.fullName && user.fullName.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -393,7 +393,7 @@ export default function UsersPage() {
             <ExportButton
               data={users.map(user => ({
                 'Full Name': user.fullName || user.username,
-                'Username': user.username,
+                'Username': user.username || 'N/A',
                 'Email': user.email,
                 'Role': user.userRole,
                 'Status': user.isDeleted ? 'Deleted' : (user.isActive ? 'Active' : 'Suspended'),
@@ -635,7 +635,7 @@ export default function UsersPage() {
                       const isSelected = selectedUsers.includes(user.id);
                       const initials = user.fullName
                         ? user.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
-                        : user.username.slice(0, 2).toUpperCase();
+                        : (user.username || user.email || 'U').slice(0, 2).toUpperCase();
                       
                       const isActionLoadingForUser = isActionLoading === user.id;
 
@@ -660,7 +660,7 @@ export default function UsersPage() {
                               {user.avatarUrl ? (
                                 <img
                                   src={user.avatarUrl}
-                                  alt={user.fullName || user.username}
+                                  alt={user.fullName || user.username || 'User avatar'}
                                   className="h-10 w-10 rounded-full"
                                 />
                               ) : (
@@ -671,7 +671,7 @@ export default function UsersPage() {
                               <div className="flex items-center gap-2">
                                 <div>
                                   <p className="font-medium">{user.fullName || user.username}</p>
-                                  <p className="text-sm text-muted-foreground">@{user.username}</p>
+                                  <p className="text-sm text-muted-foreground">@{user.username || 'no-username'}</p>
                                 </div>
                                 {userWarningCounts[user.id] > 0 && (
                                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
@@ -835,13 +835,13 @@ export default function UsersPage() {
                 {selectedUser.avatarUrl ? (
                   <img
                     src={selectedUser.avatarUrl}
-                    alt={selectedUser.fullName || selectedUser.username}
+                    alt={selectedUser.fullName || selectedUser.username || 'User avatar'}
                     className="h-16 w-16 rounded-full"
                   />
                 ) : (
                   <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
                     <span className="text-2xl font-medium text-primary">
-                      {(selectedUser.fullName || selectedUser.username)
+                      {(selectedUser.fullName || selectedUser.username || 'User')
                         .split(' ')
                         .map(n => n[0])
                         .join('')
@@ -851,8 +851,8 @@ export default function UsersPage() {
                   </div>
                 )}
                 <div>
-                  <h3 className="text-xl font-semibold">{selectedUser.fullName || selectedUser.username}</h3>
-                  <p className="text-sm text-muted-foreground">@{selectedUser.username}</p>
+                  <h3 className="text-xl font-semibold">{selectedUser.fullName || selectedUser.username || 'User'}</h3>
+                  <p className="text-sm text-muted-foreground">@{selectedUser.username || 'no-username'}</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -989,7 +989,7 @@ export default function UsersPage() {
           <DialogHeader>
             <DialogTitle>Suspend User</DialogTitle>
             <DialogDescription>
-              Are you sure you want to suspend {selectedUser?.fullName || selectedUser?.username}? They will not be able to access their account.
+              Are you sure you want to suspend {selectedUser?.fullName || selectedUser?.username || 'this user'}? They will not be able to access their account.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -1039,7 +1039,7 @@ export default function UsersPage() {
           <DialogHeader>
             <DialogTitle>Issue Warning</DialogTitle>
             <DialogDescription>
-              Issue a warning to {selectedUser?.fullName || selectedUser?.username}. The user will be notified and this will be recorded in their warning history.
+              Issue a warning to {selectedUser?.fullName || selectedUser?.username || 'this user'}. The user will be notified and this will be recorded in their warning history.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">

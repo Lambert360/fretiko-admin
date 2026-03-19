@@ -16,11 +16,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { financeAPI, type RevenueStats, type EscrowHealth, type Payout, type Deposit, type TotalPlatformFunds, type UserBalance, type PlatformWallet, type BankAccount, type CreateBankAccountDto, type UpdateBankAccountDto, type WithdrawRequestDto, type PlatformWithdrawal, type GiftStats, type UserGiftHolding, type VirtualGift, type CreateGiftDto, type UpdateGiftDto } from '@/lib/api/finance';
+import { financeAPI, type RevenueStats, type EscrowHealth, type Payout, type Deposit, type TotalPlatformFunds, type UserBalance, type PlatformWallet, type BankAccount, type CreateBankAccountDto, type UpdateBankAccountDto, type WithdrawRequestDto, type PlatformWithdrawal, type GiftStats, type UserGiftHolding, type VirtualGift, type CreateGiftDto, type UpdateGiftDto, type RegionalRevenueResponse, type ProviderPerformanceResponse, type TransactionPatternsResponse, type EnhancedRevenueSummary } from '@/lib/api/finance';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { DollarSign, TrendingUp, Clock, AlertTriangle, Wallet, CreditCard, BarChart3, Calendar, Loader2, Eye, MoreVertical, Search, ArrowDownCircle, Building2, Plus, Edit, Trash2, ArrowUpCircle } from 'lucide-react';
+import { DollarSign, TrendingUp, Clock, AlertTriangle, Wallet, CreditCard, BarChart3, Calendar, Loader2, Eye, MoreVertical, Search, ArrowDownCircle, Building2, Plus, Edit, Trash2, ArrowUpCircle, Users, MapPin, CheckCircle } from 'lucide-react';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/loading';
 import { formatDateTime, formatCurrency } from '@/lib/utils/formatting';
 import { Input } from '@/components/ui/input';
@@ -44,7 +44,7 @@ import {
 const FinancePage = () => {
   const { isSuperAdmin, hasPermission } = useAuth();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<'revenue' | 'escrow' | 'payouts' | 'deposits' | 'user-balances' | 'platform-wallet' | 'gift-wallet'>('revenue');
+  const [activeTab, setActiveTab] = useState<'revenue' | 'escrow' | 'payouts' | 'deposits' | 'user-balances' | 'platform-wallet' | 'gift-wallet' | 'regional-revenue' | 'provider-performance' | 'transaction-patterns' | 'enhanced-revenue'>('revenue');
   const [revenueStats, setRevenueStats] = useState<RevenueStats | null>(null);
   const [escrowHealth, setEscrowHealth] = useState<EscrowHealth | null>(null);
   const [payouts, setPayouts] = useState<Payout[]>([]);
@@ -120,6 +120,13 @@ const FinancePage = () => {
     is_active: true,
   });
 
+  // Enhanced Analytics States
+  const [regionalRevenue, setRegionalRevenue] = useState<RegionalRevenueResponse | null>(null);
+  const [providerPerformance, setProviderPerformance] = useState<ProviderPerformanceResponse | null>(null);
+  const [transactionPatterns, setTransactionPatterns] = useState<TransactionPatternsResponse | null>(null);
+  const [enhancedRevenueSummary, setEnhancedRevenueSummary] = useState<EnhancedRevenueSummary | null>(null);
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>('monthly');
+
   const canViewFinance = isSuperAdmin || hasPermission('view_revenue');
 
   useEffect(() => {
@@ -143,9 +150,17 @@ const FinancePage = () => {
         fetchGiftWalletStats();
         fetchUserGiftHoldings();
         fetchAllGifts();
+      } else if (activeTab === 'regional-revenue') {
+        fetchRegionalRevenue();
+      } else if (activeTab === 'provider-performance') {
+        fetchProviderPerformance();
+      } else if (activeTab === 'transaction-patterns') {
+        fetchTransactionPatterns();
+      } else if (activeTab === 'enhanced-revenue') {
+        fetchEnhancedRevenueSummary();
       }
     }
-  }, [canViewFinance, activeTab, dateRange, payoutStatusFilter, depositStatusFilter, depositPaymentMethodFilter, depositSearchQuery, userBalanceSearchQuery, giftHoldingsSearchQuery, page, giftHoldingsPage]);
+  }, [canViewFinance, activeTab, dateRange, payoutStatusFilter, depositStatusFilter, depositPaymentMethodFilter, depositSearchQuery, userBalanceSearchQuery, giftHoldingsSearchQuery, page, giftHoldingsPage, analyticsPeriod]);
 
   const fetchRevenue = async () => {
     try {
@@ -686,6 +701,103 @@ const FinancePage = () => {
     return methodMap[method.toLowerCase()] || method.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   };
 
+  // ✅ NEW: Enhanced Analytics Fetch Functions
+  const fetchRegionalRevenue = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await financeAPI.getRegionalRevenue({
+        period: analyticsPeriod,
+        startDate: dateRange.start,
+        endDate: dateRange.end,
+      });
+      setRegionalRevenue(data);
+    } catch (err: any) {
+      console.error('Failed to fetch regional revenue:', err);
+      const errorMessage = err.response?.data?.message || 'Failed to load regional revenue data';
+      setError(errorMessage);
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchProviderPerformance = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await financeAPI.getProviderPerformance({
+        period: analyticsPeriod,
+        startDate: dateRange.start,
+        endDate: dateRange.end,
+      });
+      setProviderPerformance(data);
+    } catch (err: any) {
+      console.error('Failed to fetch provider performance:', err);
+      const errorMessage = err.response?.data?.message || 'Failed to load provider performance data';
+      setError(errorMessage);
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchTransactionPatterns = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await financeAPI.getTransactionPatterns({
+        period: analyticsPeriod,
+        startDate: dateRange.start,
+        endDate: dateRange.end,
+      });
+      setTransactionPatterns(data);
+    } catch (err: any) {
+      console.error('Failed to fetch transaction patterns:', err);
+      const errorMessage = err.response?.data?.message || 'Failed to load transaction patterns data';
+      setError(errorMessage);
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchEnhancedRevenueSummary = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await financeAPI.getRevenueSummary({
+        period: analyticsPeriod,
+        startDate: dateRange.start,
+        endDate: dateRange.end,
+      });
+      setEnhancedRevenueSummary(data);
+    } catch (err: any) {
+      console.error('Failed to fetch enhanced revenue summary:', err);
+      const errorMessage = err.response?.data?.message || 'Failed to load enhanced revenue summary data';
+      setError(errorMessage);
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   if (!canViewFinance) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -827,8 +939,68 @@ const FinancePage = () => {
           >
             Gift Wallet
           </button>
+          {/* ✅ NEW: Enhanced Analytics Tabs */}
+          <button
+            onClick={() => setActiveTab('regional-revenue')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'regional-revenue'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Regional Revenue
+          </button>
+          <button
+            onClick={() => setActiveTab('provider-performance')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'provider-performance'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Provider Performance
+          </button>
+          <button
+            onClick={() => setActiveTab('transaction-patterns')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'transaction-patterns'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Transaction Patterns
+          </button>
+          <button
+            onClick={() => setActiveTab('enhanced-revenue')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'enhanced-revenue'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Enhanced Revenue
+          </button>
         </nav>
       </div>
+
+      {/* Analytics Period Selector */}
+      {(activeTab === 'regional-revenue' || activeTab === 'provider-performance' || 
+        activeTab === 'transaction-patterns' || activeTab === 'enhanced-revenue') && (
+        <div className="flex items-center space-x-4">
+          <Label htmlFor="period-select">Period:</Label>
+          <select
+            id="period-select"
+            value={analyticsPeriod}
+            onChange={(e) => setAnalyticsPeriod(e.target.value as any)}
+            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+          </select>
+        </div>
+      )}
 
       {/* Tab Content */}
       {activeTab === 'revenue' && (
@@ -953,6 +1125,425 @@ const FinancePage = () => {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Regional Revenue Tab */}
+      {activeTab === 'regional-revenue' && regionalRevenue && (
+        <div className="space-y-6">
+          {/* Regional Revenue Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Volume</CardTitle>
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatAmount(regionalRevenue.totalVolume)}</div>
+                <p className="text-xs text-muted-foreground">
+                  Total transaction volume
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Users</CardTitle>
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{regionalRevenue.totalUsers.toLocaleString()}</div>
+                <p className="text-xs text-muted-foreground">
+                  Active users in period
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Active Regions</CardTitle>
+                <MapPin className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{regionalRevenue.regions.length}</div>
+                <p className="text-xs text-muted-foreground">
+                  Regions with activity
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Regional Breakdown */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Regional Breakdown</CardTitle>
+              <CardDescription>Revenue and transaction details by region</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {regionalRevenue.regions.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">No regional data available for this period</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-left py-2 pr-4">Country/Region</th>
+                          <th className="text-right py-2 pr-4">Volume</th>
+                          <th className="text-right py-2 pr-4">Users</th>
+                          <th className="text-right py-2 pr-4">Transactions</th>
+                          <th className="text-right py-2 pr-4">Growth</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {regionalRevenue.regions.map((region, index) => (
+                          <tr key={`${region.country}-${region.region}-${index}`} className="border-b border-border/50">
+                            <td className="py-2 pr-4">
+                              <div className="font-medium">{region.country}</div>
+                              <div className="text-xs text-muted-foreground">{region.region}</div>
+                            </td>
+                            <td className="py-2 pr-4 text-right">{formatAmount(region.volume)}</td>
+                            <td className="py-2 pr-4 text-right">{region.users.toLocaleString()}</td>
+                            <td className="py-2 pr-4 text-right">{region.transactions.toLocaleString()}</td>
+                            <td className="py-2 pr-4 text-right">
+                              <span className={region.growth >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                {region.growth >= 0 ? '+' : ''}{region.growth.toFixed(1)}%
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Provider Performance Tab */}
+      {activeTab === 'provider-performance' && providerPerformance && (
+        <div className="space-y-6">
+          {/* Provider Performance Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Transactions</CardTitle>
+                <CreditCard className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{providerPerformance.summary.totalTransactions.toLocaleString()}</div>
+                <p className="text-xs text-muted-foreground">
+                  Total provider transactions
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Volume</CardTitle>
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatAmount(providerPerformance.summary.totalVolume)}</div>
+                <p className="text-xs text-muted-foreground">
+                  Total transaction volume
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Avg Success Rate</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {providerPerformance.providers.length > 0 
+                    ? providerPerformance.summary.avgSuccessRate.toFixed(1)
+                    : '0.0'}%
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Average success rate
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Active Providers</CardTitle>
+                <Building2 className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{providerPerformance.providers.length}</div>
+                <p className="text-xs text-muted-foreground">
+                  Providers with activity
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Provider Performance Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Provider Performance</CardTitle>
+              <CardDescription>Detailed performance metrics by provider</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {providerPerformance.providers.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">No provider data available for this period</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-left py-2 pr-4">Provider</th>
+                          <th className="text-right py-2 pr-4">Transactions</th>
+                          <th className="text-right py-2 pr-4">Volume</th>
+                          <th className="text-right py-2 pr-4">Success Rate</th>
+                          <th className="text-right py-2 pr-4">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {providerPerformance.providers.map((provider, index) => (
+                          <tr key={`${provider.name}-${index}`} className="border-b border-border/50">
+                            <td className="py-2 pr-4">
+                              <div className="font-medium">{provider.name}</div>
+                              <div className="text-xs text-muted-foreground">Provider</div>
+                            </td>
+                            <td className="py-2 pr-4 text-right">{provider.totalTransactions.toLocaleString()}</td>
+                            <td className="py-2 pr-4 text-right">{formatAmount(provider.totalVolume)}</td>
+                            <td className="py-2 pr-4 text-right">
+                              <span className={provider.successRate >= 95 ? 'text-green-600' : provider.successRate >= 85 ? 'text-yellow-600' : 'text-red-600'}>
+                                {provider.successRate.toFixed(1)}%
+                              </span>
+                            </td>
+                            <td className="py-2 pr-4 text-right">
+                              <Badge variant={provider.successRate >= 95 ? 'default' : provider.successRate >= 85 ? 'secondary' : 'destructive'}>
+                                {provider.successRate >= 95 ? 'Excellent' : provider.successRate >= 85 ? 'Good' : 'Poor'}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Transaction Patterns Tab */}
+      {activeTab === 'transaction-patterns' && transactionPatterns && (
+        <div className="space-y-6">
+          {/* Transaction Patterns Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Transactions</CardTitle>
+                <CreditCard className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{transactionPatterns.summary.totalTransactions.toLocaleString()}</div>
+                <p className="text-xs text-muted-foreground">
+                  Total transactions in period
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Volume</CardTitle>
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatAmount(transactionPatterns.summary.totalVolume)}</div>
+                <p className="text-xs text-muted-foreground">
+                  Total transaction volume
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Avg Transaction</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatAmount(transactionPatterns.summary.avgTransactionSize)}</div>
+                <p className="text-xs text-muted-foreground">
+                  Average transaction value
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Monthly Growth</CardTitle>
+                <BarChart3 className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  <span className={transactionPatterns.monthlyGrowth >= 0 ? 'text-green-600' : 'text-red-600'}>
+                    {transactionPatterns.monthlyGrowth >= 0 ? '+' : ''}{transactionPatterns.monthlyGrowth.toFixed(1)}%
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  vs previous month
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Peak Hours Analysis */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Peak Hours Analysis</CardTitle>
+              <CardDescription>Transaction volume by hour of day</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <h4 className="text-sm font-medium mb-4">Busiest Hours</h4>
+                    <div className="space-y-2">
+                      {transactionPatterns.peakHours.slice(0, 5).map((hourValue, index) => (
+                        <div key={index} className="flex items-center justify-between p-2 bg-muted rounded">
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm font-medium">{index}:00</span>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm font-bold">{formatAmount(hourValue)}</div>
+                            <div className="text-xs text-muted-foreground">Volume</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium mb-4">Peak Statistics</h4>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Peak Hour</span>
+                        <span className="text-sm font-medium">
+                          {transactionPatterns.peakHours.length > 0 ? `${transactionPatterns.peakHours.indexOf(Math.max(...transactionPatterns.peakHours))}:00` : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Peak Volume</span>
+                        <span className="text-sm font-medium">
+                          {transactionPatterns.peakHours.length > 0 ? formatAmount(Math.max(...transactionPatterns.peakHours)) : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Average per Hour</span>
+                        <span className="text-sm font-medium">
+                          {transactionPatterns.peakHours.length > 0 
+                            ? formatAmount(transactionPatterns.peakHours.reduce((sum, hour) => sum + hour, 0) / transactionPatterns.peakHours.length)
+                            : 'N/A'
+                          }
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Transaction Types */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Transaction Types Breakdown</CardTitle>
+              <CardDescription>Distribution of transactions by type</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {Object.entries(transactionPatterns.transactionTypes).map(([type, count]) => (
+                  <div key={type} className="space-y-2">
+                    <div className="flex items-center justify-between p-3 border rounded-lg">
+                      <div>
+                        <p className="font-medium capitalize">{type.replace('_', ' ')}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {count.toLocaleString()} transactions
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-bold">{count}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {((count / transactionPatterns.summary.totalTransactions) * 100).toFixed(1)}%
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Hourly Distribution */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Hourly Distribution</CardTitle>
+              <CardDescription>Transaction volume throughout the day</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="grid grid-cols-24 gap-1">
+                  {transactionPatterns.peakHours.map((hourValue, index) => {
+                    const maxVolume = Math.max(...transactionPatterns.peakHours);
+                    const height = maxVolume > 0 ? (hourValue / maxVolume) * 100 : 0;
+                    
+                    return (
+                      <div key={index} className="flex flex-col items-center">
+                        <div 
+                          className="w-full bg-primary rounded-t"
+                          style={{ height: `${height}%`, minHeight: height > 0 ? '4px' : '0' }}
+                        />
+                        <span className="text-xs text-muted-foreground mt-1">{index}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Daily Distribution */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Daily Distribution</CardTitle>
+              <CardDescription>Transaction patterns by day of week</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="grid grid-cols-7 gap-2">
+                  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => {
+                    const dayValue = transactionPatterns.dailyDistribution[index];
+                    const maxValue = Math.max(...transactionPatterns.dailyDistribution);
+                    const height = maxValue > 0 ? (dayValue / maxValue) * 100 : 0;
+                    
+                    return (
+                      <div key={day} className="flex flex-col items-center">
+                        <span className="text-xs text-muted-foreground mb-2">{day}</span>
+                        <div 
+                          className="w-full bg-primary rounded-t"
+                          style={{ height: `${height}%`, minHeight: height > 0 ? '40px' : '0' }}
+                        />
+                        <div className="text-xs font-medium mt-2">
+                          {formatAmount(dayValue)}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Volume
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
 
@@ -1479,8 +2070,18 @@ const FinancePage = () => {
         </div>
       )}
 
-      {activeTab === 'platform-wallet' && (
+      {activeTab === 'platform-wallet' && (isSuperAdmin || hasPermission('view_platform_wallet')) ? (
         <div className="space-y-6">
+          {/* Platform Wallet Header with Super Admin Badge */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <h2 className="text-2xl font-bold">Platform Wallet</h2>
+              <Badge variant="secondary" className="bg-purple-100 text-purple-800">
+                {isSuperAdmin ? 'Super Admin Access' : 'Finance Staff Access'}
+              </Badge>
+            </div>
+          </div>
+
           {/* Platform Wallet Overview */}
           {platformWallet && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -1698,7 +2299,18 @@ const FinancePage = () => {
             </div>
           )}
         </div>
-      )}
+      ) : null }
+
+      {/* Platform Wallet - Access Restricted */}
+      {activeTab === 'platform-wallet' && !isSuperAdmin ? (
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <AlertTriangle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">Access Restricted</h3>
+            <p className="text-muted-foreground">Platform wallet access is restricted to super administrators only.</p>
+          </div>
+        </div>
+      ) : null}
 
       {/* Payout Details Dialog */}
       <Dialog open={payoutDetailsDialog.open} onOpenChange={(open) => setPayoutDetailsDialog({ open, payout: null })}>
@@ -2089,6 +2701,220 @@ const FinancePage = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Enhanced Revenue Summary Tab */}
+      {activeTab === 'enhanced-revenue' && enhancedRevenueSummary && (
+        <div className="space-y-6">
+          {/* Enhanced Revenue Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Deposits</CardTitle>
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatAmount(enhancedRevenueSummary.revenue.totalDeposits)}</div>
+                <p className="text-xs text-muted-foreground">
+                  Total deposits in period
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Net Revenue</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatAmount(enhancedRevenueSummary.revenue.netRevenue)}</div>
+                <p className="text-xs text-muted-foreground">
+                  Revenue after deductions
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
+                <CheckCircle className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  <span className={enhancedRevenueSummary.transactions.successRate >= 95 ? 'text-green-600' : enhancedRevenueSummary.transactions.successRate >= 85 ? 'text-yellow-600' : 'text-red-600'}>
+                    {enhancedRevenueSummary.transactions.successRate.toFixed(1)}%
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Transaction success rate
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Active Users</CardTitle>
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{enhancedRevenueSummary.users.activeUsers.toLocaleString()}</div>
+                <p className="text-xs text-muted-foreground">
+                  Users with activity
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Revenue Breakdown */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Revenue Breakdown</CardTitle>
+              <CardDescription>Detailed revenue analysis by category</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div>
+                    <h4 className="text-sm font-medium mb-4">Deposits</h4>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Total</span>
+                        <span className="text-sm font-medium">{formatAmount(enhancedRevenueSummary.revenue.totalDeposits)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Total Withdrawals</span>
+                        <span className="text-sm font-medium">{formatAmount(enhancedRevenueSummary.revenue.totalWithdrawals)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Net Revenue</span>
+                        <span className="text-sm font-medium text-green-600">{formatAmount(enhancedRevenueSummary.revenue.netRevenue)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Fees</span>
+                        <span className="text-sm font-medium text-yellow-600">{formatAmount(enhancedRevenueSummary.revenue.fees)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <h4 className="text-sm font-medium mb-4">Withdrawals</h4>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Total Deposits</span>
+                        <span className="text-sm font-medium">{formatAmount(enhancedRevenueSummary.transactions.totalDeposits)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Total Withdrawals</span>
+                        <span className="text-sm font-medium">{formatAmount(enhancedRevenueSummary.transactions.totalWithdrawals)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Success Rate</span>
+                        <span className="text-sm font-medium text-green-600">{enhancedRevenueSummary.transactions.successRate.toFixed(1)}%</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <h4 className="text-sm font-medium mb-4">Fees</h4>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Platform Fees</span>
+                        <span className="text-sm font-medium">{formatAmount(enhancedRevenueSummary.revenue.fees)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Net Fees</span>
+                        <span className="text-sm font-medium">{formatAmount(enhancedRevenueSummary.revenue.netFees)}</span>
+                      </div>
+                      <div className="flex justify-between pt-2 border-t">
+                        <span className="text-sm font-medium">Total Fees</span>
+                        <span className="text-sm font-bold">{formatAmount(enhancedRevenueSummary.revenue.fees)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* User Metrics */}
+          <Card>
+            <CardHeader>
+              <CardTitle>User Metrics</CardTitle>
+              <CardDescription>User activity and engagement analytics</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div>
+                  <h4 className="text-sm font-medium mb-2">Active Users</h4>
+                  <div className="text-2xl font-bold">{enhancedRevenueSummary.users.activeUsers.toLocaleString()}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Active users in period
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium mb-2">New Users</h4>
+                  <div className="text-2xl font-bold">{enhancedRevenueSummary.users.newUsers.toLocaleString()}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Joined in this period
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium mb-2">Retention Rate</h4>
+                  <div className="text-2xl font-bold">
+                    <span className={enhancedRevenueSummary.users.retentionRate >= 70 ? 'text-green-600' : enhancedRevenueSummary.users.retentionRate >= 50 ? 'text-yellow-600' : 'text-red-600'}>
+                      {enhancedRevenueSummary.users.retentionRate.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    User retention
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Growth Metrics */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Growth Metrics</CardTitle>
+              <CardDescription>Period-over-period growth analysis</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div>
+                  <h4 className="text-sm font-medium mb-2">Monthly Growth</h4>
+                  <div className="text-2xl font-bold">
+                    <span className={enhancedRevenueSummary.growth.monthlyGrowth >= 0 ? 'text-green-600' : 'text-red-600'}>
+                      {enhancedRevenueSummary.growth.monthlyGrowth >= 0 ? '+' : ''}{enhancedRevenueSummary.growth.monthlyGrowth.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    vs previous period
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium mb-2">User Growth</h4>
+                  <div className="text-2xl font-bold">
+                    <span className={enhancedRevenueSummary.growth.userGrowth >= 0 ? 'text-green-600' : 'text-red-600'}>
+                      {enhancedRevenueSummary.growth.userGrowth >= 0 ? '+' : ''}{enhancedRevenueSummary.growth.userGrowth.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    vs previous period
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium mb-2">Transaction Growth</h4>
+                  <div className="text-2xl font-bold">
+                    <span className={enhancedRevenueSummary.growth.transactionGrowth >= 0 ? 'text-green-600' : 'text-red-600'}>
+                      {enhancedRevenueSummary.growth.transactionGrowth >= 0 ? '+' : ''}{enhancedRevenueSummary.growth.transactionGrowth.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    vs previous period
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Gift Wallet Tab */}
       {activeTab === 'gift-wallet' && (

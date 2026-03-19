@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Search, Package, Clock, CheckCircle, XCircle, Eye, MoreVertical, ShoppingCart, RefreshCw, AlertCircle } from 'lucide-react';
+import { Search, Package, Clock, CheckCircle, XCircle, Eye, MoreVertical, ShoppingCart, RefreshCw, AlertCircle, DollarSign, Users, Truck } from 'lucide-react';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingSpinner, SkeletonTable } from '@/components/ui/loading';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -52,6 +52,14 @@ export default function OrdersPage() {
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
   const [newStatus, setNewStatus] = useState<'pending' | 'processing' | 'completed' | 'cancelled'>('processing');
   const [cancelReason, setCancelReason] = useState('');
+  
+  // Refund dialog states
+  const [isRefundDialogOpen, setIsRefundDialogOpen] = useState(false);
+  const [refundType, setRefundType] = useState<'full' | 'partial' | 'release'>('full');
+  const [refundReason, setRefundReason] = useState('');
+  const [riderEarnings, setRiderEarnings] = useState(0);
+  const [vendorAmount, setVendorAmount] = useState(0);
+  const [platformFee, setPlatformFee] = useState(0);
 
   const canViewOrders = isSuperAdmin || hasPermission('view_orders');
 
@@ -185,6 +193,66 @@ export default function OrdersPage() {
       toast({
         title: 'Error',
         description: err.response?.data?.message || 'Failed to cancel order',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsActionLoading(null);
+    }
+  };
+
+  const handleRefundClick = (orderId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    if (order) {
+      setSelectedOrder(order);
+      setRefundType('full');
+      setRefundReason('');
+      setRiderEarnings(0);
+      setVendorAmount(0);
+      setPlatformFee(0);
+      setIsRefundDialogOpen(true);
+    }
+  };
+
+  const handleRefundSubmit = async () => {
+    if (!selectedOrder) return;
+
+    try {
+      setIsActionLoading(selectedOrder.id);
+      
+      const refundData = {
+        orderId: selectedOrder.id,
+        type: refundType,
+        reason: refundReason,
+        ...(refundType === 'partial' && {
+          riderEarnings,
+          vendorAmount,
+        }),
+      };
+
+      await ordersAPI.processRefund(refundData);
+      await fetchOrders();
+      await fetchStats();
+      setIsRefundDialogOpen(false);
+      setRefundReason('');
+      setRiderEarnings(0);
+      setVendorAmount(0);
+      setPlatformFee(0);
+      setSelectedOrder(null);
+      
+      const refundTypeText = {
+        full: 'Full refund to buyer',
+        partial: 'Partial refund',
+        release: 'Release funds to all parties',
+      }[refundType];
+      
+      toast({
+        title: 'Refund Processed',
+        description: `${refundTypeText} for order ${selectedOrder.orderNumber}`,
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to process refund',
         variant: 'destructive',
       });
     } finally {
@@ -478,6 +546,13 @@ export default function OrdersPage() {
                                     <XCircle className="mr-2 h-4 w-4" />
                                     Cancel Order
                                   </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() => handleRefundClick(order.id)}
+                                    className="text-orange-600"
+                                  >
+                                    <DollarSign className="mr-2 h-4 w-4" />
+                                    Process Refund
+                                  </DropdownMenuItem>
                                     </>
                                   )}
                                   {order.status === 'cancelled' && (
@@ -709,6 +784,216 @@ export default function OrdersPage() {
               variant="destructive"
             >
               {isActionLoading ? 'Cancelling...' : 'Cancel Order'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Refund Dialog */}
+      <Dialog open={isRefundDialogOpen} onOpenChange={setIsRefundDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogClose onClose={() => {
+            setIsRefundDialogOpen(false);
+            setRefundReason('');
+            setRiderEarnings(0);
+            setVendorAmount(0);
+            setSelectedOrder(null);
+          }} />
+          <DialogHeader>
+            <DialogTitle>Process Refund</DialogTitle>
+            <DialogDescription>
+              Choose how to handle the refund for order {selectedOrder?.orderNumber}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedOrder && (
+            <div className="space-y-6">
+              {/* Order Summary */}
+              <div className="bg-muted/50 rounded-lg p-4">
+                <h4 className="font-medium mb-3">Order Summary</h4>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Order Number:</span>
+                    <span className="ml-2 font-medium">{selectedOrder.orderNumber}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Amount:</span>
+                    <span className="ml-2 font-medium">{formatCurrency(selectedOrder.amount)}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Customer:</span>
+                    <span className="ml-2 font-medium">{selectedOrder.customer}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Vendor:</span>
+                    <span className="ml-2 font-medium">{selectedOrder.vendor}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Delivery Type:</span>
+                    <span className="ml-2 font-medium capitalize">{selectedOrder.riderId ? 'Delivery' : 'Pickup'}</span>
+                  </div>
+                  {selectedOrder.riderId && selectedOrder.deliveryFee && (
+                    <div>
+                      <span className="text-muted-foreground">Rider Fee:</span>
+                      <span className="ml-2 font-medium">{formatCurrency(selectedOrder.deliveryFee)}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Refund Type Selection */}
+              <div>
+                <label className="text-sm font-medium mb-3 block">Refund Type</label>
+                <div className="space-y-3">
+                  <div className="flex items-start space-x-3 p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                       onClick={() => setRefundType('full')}>
+                    <input
+                      type="radio"
+                      name="refundType"
+                      value="full"
+                      checked={refundType === 'full'}
+                      onChange={() => setRefundType('full')}
+                      className="mt-1"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <Users className="h-4 w-4 text-blue-600" />
+                        <span className="font-medium">Full Refund to Buyer</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Return the entire order amount to the customer (buyer)
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                       onClick={() => setRefundType('partial')}>
+                    <input
+                      type="radio"
+                      name="refundType"
+                      value="partial"
+                      checked={refundType === 'partial'}
+                      onChange={() => setRefundType('partial')}
+                      className="mt-1"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <Truck className="h-4 w-4 text-orange-600" />
+                        <span className="font-medium">Partial Refund</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Rider keeps their earnings, remaining amount refunded to buyer
+                      </p>
+                      {refundType === 'partial' && (
+                        <div className="mt-3 space-y-2">
+                          <div className="grid grid-cols-3 gap-2">
+                            <div>
+                              <label className="text-sm font-medium">Rider Earnings</label>
+                              <Input
+                                type="number"
+                                value={riderEarnings}
+                                onChange={(e) => setRiderEarnings(Number(e.target.value))}
+                                placeholder="0.00"
+                                className="mt-1"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">Vendor Amount</label>
+                              <Input
+                                type="number"
+                                value={vendorAmount}
+                                onChange={(e) => setVendorAmount(Number(e.target.value))}
+                                placeholder="0.00"
+                                className="mt-1"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">Platform Fee</label>
+                              <Input
+                                type="number"
+                                value={platformFee}
+                                onChange={(e) => setPlatformFee(Number(e.target.value))}
+                                placeholder="0.00"
+                                className="mt-1"
+                              />
+                            </div>
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            Buyer refund: {formatCurrency(selectedOrder.amount - riderEarnings - vendorAmount - platformFee)}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                       onClick={() => setRefundType('release')}>
+                    <input
+                      type="radio"
+                      name="refundType"
+                      value="release"
+                      checked={refundType === 'release'}
+                      onChange={() => setRefundType('release')}
+                      className="mt-1"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <DollarSign className="h-4 w-4 text-green-600" />
+                        <span className="font-medium">Release Funds to All Parties</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Release funds to vendor and rider (if applicable)
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Refund Reason */}
+              <div>
+                <label className="text-sm font-medium mb-2 block">Refund Reason</label>
+                <Textarea
+                  value={refundReason}
+                  onChange={(e) => setRefundReason(e.target.value)}
+                  placeholder="Enter reason for refund..."
+                  rows={3}
+                  className="w-full"
+                  disabled={isActionLoading !== null}
+                />
+              </div>
+
+              {/* Warning */}
+              <div className="bg-orange-50 border border-orange-200 rounded-md p-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 text-orange-600 mt-0.5" />
+                  <div className="text-sm text-orange-800">
+                    <p className="font-medium mb-1">Important Notice</p>
+                    <p>This action will process the refund through the escrow system and cannot be undone. Please verify all details before proceeding.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsRefundDialogOpen(false);
+                setRefundReason('');
+                setRiderEarnings(0);
+                setVendorAmount(0);
+                setPlatformFee(0);
+                setSelectedOrder(null);
+              }}
+              disabled={isActionLoading !== null}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRefundSubmit}
+              disabled={isActionLoading !== null || !refundReason.trim()}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              {isActionLoading ? 'Processing...' : 'Process Refund'}
             </Button>
           </DialogFooter>
         </DialogContent>

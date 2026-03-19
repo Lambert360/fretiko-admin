@@ -15,6 +15,13 @@ export interface Order {
   status: 'pending' | 'processing' | 'completed' | 'cancelled';
   type: 'product' | 'service';
   createdAt: string;
+  riderId?: string;
+  riderName?: string;
+  vendorId?: string;
+  customerId?: string;
+  deliveryId?: string;
+  deliveryType?: 'pickup' | 'delivery';
+  deliveryFee?: number;
 }
 
 export interface OrderStats {
@@ -37,6 +44,15 @@ export interface OrderFilters {
   search?: string;
   page?: number;
   limit?: number;
+}
+
+export interface RefundRequest {
+  orderId: string;
+  type: 'full' | 'partial' | 'release';
+  reason: string;
+  riderEarnings?: number;
+  vendorAmount?: number;
+  platformFee?: number;
 }
 
 export const ordersAPI = {
@@ -87,5 +103,27 @@ export const ordersAPI = {
    */
   cancelOrder: async (orderId: string, reason?: string): Promise<{ message: string }> => {
     return apiClient.post<{ message: string }>(`/admin/orders/${orderId}/cancel`, { reason });
+  },
+
+  /**
+   * Process refund for order
+   * POST /admin/orders/:id/refund
+   */
+  processRefund: async (refundData: RefundRequest): Promise<{ message: string }> => {
+    return apiClient.post<{ message: string }>(`/admin/orders/${refundData.orderId}/refund`, refundData);
+  },
+
+  /**
+   * Get order details with escrow information
+   * GET /admin/orders/:id/escrow
+   */
+  getOrderEscrowInfo: async (orderId: string): Promise<{
+    totalAmount: number;
+    vendorAmount: number;
+    riderAmount: number;
+    platformFee: number;
+    status: 'held' | 'released' | 'refunded';
+  }> => {
+    return apiClient.get(`/admin/orders/${orderId}/escrow`);
   },
 };

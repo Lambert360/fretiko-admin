@@ -7,12 +7,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Shield, AlertCircle } from 'lucide-react';
+import { ForgotPasswordModal } from '@/components/auth/ForgotPasswordModal';
 
 export default function LoginPage() {
   const [staffIdOrEmail, setStaffIdOrEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
   const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -91,10 +93,21 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-6 text-center text-sm text-muted-foreground">
-            <p>Forgot your password? Contact your administrator.</p>
+            <button
+              type="button"
+              onClick={() => setShowForgotPassword(true)}
+              className="text-primary hover:underline font-medium"
+            >
+              Forgot your password?
+            </button>
           </div>
         </CardContent>
       </Card>
+
+      <ForgotPasswordModal 
+        open={showForgotPassword} 
+        onOpenChange={setShowForgotPassword}
+      />
     </div>
   );
 }
