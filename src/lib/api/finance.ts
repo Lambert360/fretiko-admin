@@ -285,6 +285,18 @@ export interface UpdateBankAccountDto {
   isDefault?: boolean;
 }
 
+export interface Bank {
+  id: number | string;
+  code: string;
+  name: string;
+}
+
+export interface AccountPreview {
+  accountName: string;
+  accountNumber: string;
+  bankCode: string;
+}
+
 export interface WithdrawRequestDto {
   fretiAmount: number;
   bankAccountId: string;
@@ -501,6 +513,16 @@ export const financeAPI = {
    */
   getPlatformBankAccounts: async (): Promise<BankAccount[]> => {
     return apiClient.get<BankAccount[]>('/admin/platform/bank-accounts');
+  },
+
+  getPlatformBanks: async (country: string): Promise<Bank[]> => {
+    const response = await apiClient.get<{ status: string; data: Bank[]; message: string }>(`/admin/platform/banks/${country.toUpperCase()}`);
+    return response.data;
+  },
+
+  previewPlatformBankAccount: async (dto: { accountNumber: string; bankCode: string }): Promise<AccountPreview> => {
+    const response = await apiClient.post<{ status: string; data: AccountPreview; message: string }>('/admin/platform/bank-accounts/preview', dto);
+    return response.data;
   },
 
   /**

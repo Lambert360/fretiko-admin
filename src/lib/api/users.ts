@@ -56,7 +56,7 @@ export const usersAPI = {
     if (filters?.limit) params.append('limit', filters.limit.toString());
 
     const queryString = params.toString();
-    return apiClient.get<UserListResponse>(`/dashboard/users${queryString ? `?${queryString}` : ''}`);
+    return apiClient.get<UserListResponse>(`/admin/users${queryString ? `?${queryString}` : ''}`);
   },
 
   /**

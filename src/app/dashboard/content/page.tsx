@@ -16,7 +16,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { contentAPI, type Product, type Service, type Story, type LiveStream, type Auction, type ContentModerationStats } from '@/lib/api/content';
+import { contentAPI, type Product, type Service, type Story, type LiveStream, type Auction, type AdminPost, type ContentModerationStats } from '@/lib/api/content';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -60,9 +60,20 @@ import {
   File,
   Music,
   Download,
+  FileText,
+  EyeOff,
+  Pin,
+  PinOff,
+  MessageSquare,
+  Share2,
+  Gift,
+  Flag,
+  Globe,
+  Lock,
+  UserCheck,
 } from 'lucide-react';
 
-type TabType = 'products' | 'services' | 'stories' | 'live-streams' | 'auctions' | 'reported';
+type TabType = 'products' | 'services' | 'stories' | 'live-streams' | 'auctions' | 'reported' | 'posts';
 
 export default function ContentModerationPage() {
   const { hasPermission } = useAuth();
@@ -81,6 +92,8 @@ export default function ContentModerationPage() {
   const [auctions, setAuctions] = useState<Auction[]>([]);
   const [reportedContent, setReportedContent] = useState<any[]>([]);
   const [reportedContentStats, setReportedContentStats] = useState<any>(null);
+  const [posts, setPosts] = useState<AdminPost[]>([]);
+  const [postsPagination, setPostsPagination] = useState<{ page: number; limit: number; total: number; totalPages: number } | null>(null);
 
   // Filters
   const [productFilters, setProductFilters] = useState({ status: 'all', search: '', page: 1 });
@@ -88,7 +101,8 @@ export default function ContentModerationPage() {
   const [storyFilters, setStoryFilters] = useState({ search: '', page: 1 });
   const [streamFilters, setStreamFilters] = useState({ status: 'all', page: 1 });
   const [auctionFilters, setAuctionFilters] = useState({ status: 'all', search: '', page: 1 });
-  const [reportedFilters, setReportedFilters] = useState({ status: 'all' as 'all' | 'pending' | 'under_review' | 'approved' | 'action_taken' | 'dismissed', category: 'all' as 'all' | 'product' | 'service' | 'chat' | 'user', search: '', page: 1 });
+  const [reportedFilters, setReportedFilters] = useState({ status: 'all' as 'all' | 'pending' | 'under_review' | 'approved' | 'action_taken' | 'dismissed', category: 'all' as 'all' | 'product' | 'service' | 'chat' | 'user' | 'post', search: '', page: 1 });
+  const [postFilters, setPostFilters] = useState({ status: 'all', privacy: 'all', search: '', sortBy: 'newest', page: 1 });
 
   // Moderation dialogs
   const [approveDialog, setApproveDialog] = useState<{ open: boolean; type: string; id: string }>({ open: false, type: '', id: '' });
@@ -103,7 +117,7 @@ export default function ContentModerationPage() {
   const [reviewReason, setReviewReason] = useState('');
   
   // Reported content viewer dialog
-  const [viewContentDialog, setViewContentDialog] = useState<{ open: boolean; content: Product | Service | null; type: 'product' | 'service' | null }>({ open: false, content: null, type: null });
+  const [viewContentDialog, setViewContentDialog] = useState<{ open: boolean; content: Product | Service | AdminPost | null; type: 'product' | 'service' | 'post' | null }>({ open: false, content: null, type: null });
   const [isLoadingReportedContent, setIsLoadingReportedContent] = useState(false);
   
   // Evidence viewer dialog
@@ -133,13 +147,15 @@ export default function ContentModerationPage() {
   const canRemoveStories = hasPermission('remove_stories');
   const canViewStreams = hasPermission('view_live_streams');
   const canEndStreams = hasPermission('end_live_streams');
+  const canViewPosts = canViewProducts;
+  const canModeratePosts = canRemoveProducts;
 
   useEffect(() => {
     if (canViewProducts) {
       fetchStats();
       fetchContent();
     }
-  }, [activeTab, productFilters, serviceFilters, storyFilters, streamFilters, auctionFilters, reportedFilters]);
+  }, [activeTab, productFilters, serviceFilters, storyFilters, streamFilters, auctionFilters, reportedFilters, postFilters]);
 
   const fetchStats = async () => {
     try {
@@ -205,6 +221,20 @@ export default function ContentModerationPage() {
             setReportedContentStats(stats);
           }
           break;
+        case 'posts':
+          if (canViewPosts) {
+            const postsData = await contentAPI.getPosts({
+              status: postFilters.status !== 'all' ? postFilters.status : undefined,
+              privacy: postFilters.privacy !== 'all' ? postFilters.privacy : undefined,
+              search: postFilters.search || undefined,
+              sortBy: postFilters.sortBy,
+              page: postFilters.page,
+              limit: 20,
+            });
+            setPosts(postsData.posts || []);
+            setPostsPagination(postsData.pagination || null);
+          }
+          break;
       }
     } catch (err: any) {
       console.error('Failed to fetch content:', err);
@@ -224,14 +254,28 @@ export default function ContentModerationPage() {
         await contentAPI.approveService(approveDialog.id, reason);
       } else if (approveDialog.type === 'auction') {
         await contentAPI.approveAuction(approveDialog.id, reason);
+      } else if (approveDialog.type === 'post-restore') {
+        await contentAPI.restorePost(approveDialog.id);
+      } else if (approveDialog.type === 'post-pin') {
+        await contentAPI.pinPost(approveDialog.id);
+      } else if (approveDialog.type === 'post-unpin') {
+        await contentAPI.unpinPost(approveDialog.id);
       }
+      const approveMessages: Record<string, string> = {
+        product: 'Product approved successfully',
+        service: 'Service approved successfully',
+        auction: 'Auction approved successfully',
+        'post-restore': 'Post restored successfully',
+        'post-pin': 'Post pinned successfully',
+        'post-unpin': 'Post unpinned successfully',
+      };
       setApproveDialog({ open: false, type: '', id: '' });
       setReason('');
       await fetchContent();
       await fetchStats();
       toast({
         title: 'Success',
-        description: `${approveDialog.type === 'product' ? 'Product' : approveDialog.type === 'service' ? 'Service' : 'Auction'} approved successfully`,
+        description: approveMessages[approveDialog.type] || 'Action completed successfully',
       });
     } catch (err: any) {
       const errorMessage = err.response?.data?.message || 'Failed to approve';
@@ -269,6 +313,8 @@ export default function ContentModerationPage() {
         await contentAPI.endLiveStream(rejectDialog.id, reason);
       } else if (rejectDialog.type === 'auction') {
         await contentAPI.rejectAuction(rejectDialog.id, reason);
+      } else if (rejectDialog.type === 'post-hide') {
+        await contentAPI.hidePost(rejectDialog.id, reason);
       }
       setRejectDialog({ open: false, type: '', id: '' });
       setReason('');
@@ -281,6 +327,7 @@ export default function ContentModerationPage() {
         story: 'Story removed successfully',
         stream: 'Live stream ended successfully',
         auction: 'Auction cancelled successfully',
+        'post-hide': 'Post hidden successfully',
       };
       
       toast({
@@ -367,7 +414,7 @@ export default function ContentModerationPage() {
           ))}
         </div>
       ) : stats ? (
-        <div className="grid gap-4 md:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
@@ -438,6 +485,26 @@ export default function ContentModerationPage() {
               </div>
             </CardContent>
           </Card>
+          {stats.posts && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Posts</p>
+                    <p className="text-2xl font-bold">{stats.posts.total}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {stats.posts.reported > 0 ? (
+                        <span className="text-red-500">{stats.posts.reported} reported</span>
+                      ) : (
+                        <span>{stats.posts.hidden} hidden</span>
+                      )}
+                    </p>
+                  </div>
+                  <FileText className="h-8 w-8 text-indigo-500" />
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       ) : null}
 
@@ -514,6 +581,18 @@ export default function ContentModerationPage() {
               }`}
             >
               Reported Content
+            </button>
+          )}
+          {canViewPosts && (
+            <button
+              onClick={() => setActiveTab('posts')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'posts'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Posts
             </button>
           )}
         </nav>
@@ -840,6 +919,30 @@ export default function ContentModerationPage() {
               </Card>
             </div>
           )}
+          {/* Posts Tab */}
+          {activeTab === 'posts' && canViewPosts && (
+            <PostsTab
+              posts={posts}
+              pagination={postsPagination}
+              filters={postFilters}
+              onFiltersChange={setPostFilters}
+              onHide={(id) => setRejectDialog({ open: true, type: 'post-hide', id })}
+              onRestore={(id) => setApproveDialog({ open: true, type: 'post-restore', id })}
+              onPin={(id) => setApproveDialog({ open: true, type: 'post-pin', id })}
+              onUnpin={(id) => setApproveDialog({ open: true, type: 'post-unpin', id })}
+              canModerate={canModeratePosts}
+              onViewMedia={(url, type, allMedia, title) => {
+                setMediaViewer({
+                  open: true,
+                  type,
+                  url,
+                  title,
+                  allMedia,
+                  currentIndex: allMedia ? allMedia.findIndex((m) => m.url === url) : 0,
+                });
+              }}
+            />
+          )}
         </>
       )}
 
@@ -852,10 +955,16 @@ export default function ContentModerationPage() {
           }} />
           <DialogHeader>
             <DialogTitle>
-              Approve {approveDialog.type === 'product' ? 'Product' : approveDialog.type === 'service' ? 'Service' : 'Auction'}
+              {approveDialog.type === 'post-restore' ? 'Restore Post'
+                : approveDialog.type === 'post-pin' ? 'Pin Post'
+                : approveDialog.type === 'post-unpin' ? 'Unpin Post'
+                : `Approve ${approveDialog.type === 'product' ? 'Product' : approveDialog.type === 'service' ? 'Service' : 'Auction'}`}
             </DialogTitle>
             <DialogDescription>
-              Approve this {approveDialog.type} to make it visible on the platform
+              {approveDialog.type === 'post-restore' ? 'This will make the post visible to users again.'
+                : approveDialog.type === 'post-pin' ? 'This will pin the post to the top of the feed.'
+                : approveDialog.type === 'post-unpin' ? 'This will remove the pin from the post.'
+                : `Approve this ${approveDialog.type} to make it visible on the platform`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -882,7 +991,7 @@ export default function ContentModerationPage() {
               Cancel
             </Button>
             <Button onClick={handleApprove} disabled={isSubmitting}>
-              {isSubmitting ? 'Approving...' : 'Approve'}
+              {isSubmitting ? 'Processing...' : approveDialog.type === 'post-restore' ? 'Restore' : approveDialog.type === 'post-pin' ? 'Pin' : approveDialog.type === 'post-unpin' ? 'Unpin' : 'Approve'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -897,14 +1006,17 @@ export default function ContentModerationPage() {
           }} />
           <DialogHeader>
             <DialogTitle>
-              {rejectDialog.type === 'product' || rejectDialog.type === 'service' || rejectDialog.type === 'auction'
+              {rejectDialog.type === 'post-hide' ? 'Hide Post'
+                : rejectDialog.type === 'product' || rejectDialog.type === 'service' || rejectDialog.type === 'auction'
                 ? 'Reject'
                 : rejectDialog.type === 'story'
                 ? 'Remove Story'
                 : 'End Live Stream'}
             </DialogTitle>
             <DialogDescription>
-              {rejectDialog.type === 'stream'
+              {rejectDialog.type === 'post-hide'
+                ? 'The post will be hidden from all users. Provide a reason for your records.'
+                : rejectDialog.type === 'stream'
                 ? 'End this live stream immediately'
                 : rejectDialog.type === 'auction'
                 ? 'Cancel this auction and prevent it from going live'
@@ -1220,6 +1332,20 @@ export default function ContentModerationPage() {
                           description: `${errorMessage} (Service ID: ${report.serviceId.substring(0, 8)}...)`,
                           variant: 'destructive',
                         });
+                      } finally {
+                        setIsLoadingReportedContent(false);
+                      }
+                    } else if (report?.postId) {
+                      try {
+                        setIsLoadingReportedContent(true);
+                        const post = await contentAPI.getPostById(report.postId);
+                        if (post) {
+                          setViewContentDialog({ open: true, content: post, type: 'post' });
+                        } else {
+                          toast({ title: 'Post Not Found', description: 'The reported post could not be found. It may have been deleted.', variant: 'destructive' });
+                        }
+                      } catch (err: any) {
+                        toast({ title: 'Error', description: err?.response?.data?.message || 'Failed to fetch post details.', variant: 'destructive' });
                       } finally {
                         setIsLoadingReportedContent(false);
                       }
@@ -1573,6 +1699,64 @@ export default function ContentModerationPage() {
                   })()}
                 </>
               )}
+              {viewContentDialog.type === 'post' && (() => {
+                const post = viewContentDialog.content as AdminPost;
+                return (
+                  <div className="space-y-4">
+                    {post.media_urls && post.media_urls.length > 0 && (
+                      <div className={`grid gap-2 ${post.media_urls.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                        {post.media_urls.slice(0, 4).map((url, idx) => (
+                          <div key={idx} className="relative aspect-video overflow-hidden rounded-md cursor-pointer" onClick={() => {
+                            const allMedia = post.media_urls.map(m => ({ url: m, type: (post.media_type === 'video' ? 'video' : 'image') as 'image' | 'video' }));
+                            setMediaViewer({ open: true, type: post.media_type === 'video' ? 'video' : 'image', url, allMedia, currentIndex: idx });
+                          }}>
+                            {post.media_type === 'video' ? (
+                              <video src={url} className="w-full h-full object-cover hover:opacity-90 transition-opacity" />
+                            ) : (
+                              <img src={url} alt={`Post media ${idx + 1}`} className="w-full h-full object-cover hover:opacity-90 transition-opacity" />
+                            )}
+                            {idx === 3 && post.media_urls.length > 4 && (
+                              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                <span className="text-white font-semibold">+{post.media_urls.length - 4}</span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {post.content && (
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground mb-1">Content</p>
+                        <p className="text-sm whitespace-pre-wrap">{post.content}</p>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <p className="text-muted-foreground">Author</p>
+                        <p className="font-medium">{post.user?.preferences?.fullName || post.user?.username || 'Unknown'}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Privacy</p>
+                        <p className="font-medium capitalize">{post.privacy_level}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Status</p>
+                        <p className="font-medium">{post.is_deleted ? 'Hidden' : post.is_pinned ? 'Pinned' : 'Active'}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Posted</p>
+                        <p className="font-medium">{new Date(post.created_at).toLocaleDateString()}</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-4 gap-4 text-sm">
+                      <div><p className="text-muted-foreground">Likes</p><p className="font-semibold">{post.likes_count}</p></div>
+                      <div><p className="text-muted-foreground">Comments</p><p className="font-semibold">{post.comments_count}</p></div>
+                      <div><p className="text-muted-foreground">Shares</p><p className="font-semibold">{post.shares_count}</p></div>
+                      <div><p className="text-muted-foreground">Gifts</p><p className="font-semibold">{post.gifts_count}</p></div>
+                    </div>
+                  </div>
+                );
+              })()}
               {viewContentDialog.type === 'service' && (
                 <>
                   {(() => {
@@ -2523,6 +2707,254 @@ function AuctionsTab({
       </div>
       {auctions.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">No auctions found</div>
+      )}
+    </div>
+  );
+}
+
+// Posts Tab Component
+function PostsTab({
+  posts,
+  pagination,
+  filters,
+  onFiltersChange,
+  onHide,
+  onRestore,
+  onPin,
+  onUnpin,
+  canModerate,
+  onViewMedia,
+}: {
+  posts: AdminPost[];
+  pagination: { page: number; limit: number; total: number; totalPages: number } | null;
+  filters: any;
+  onFiltersChange: (filters: any) => void;
+  onHide: (id: string) => void;
+  onRestore: (id: string) => void;
+  onPin: (id: string) => void;
+  onUnpin: (id: string) => void;
+  canModerate: boolean;
+  onViewMedia: (url: string, type: 'image' | 'video', allMedia?: Array<{ url: string; type: 'image' | 'video' }>, title?: string) => void;
+}) {
+  const privacyIcon = (level: string) => {
+    if (level === 'public') return <Globe className="h-3 w-3" />;
+    if (level === 'friends') return <UserCheck className="h-3 w-3" />;
+    return <Lock className="h-3 w-3" />;
+  };
+
+  const privacyLabel = (level: string) => {
+    if (level === 'public') return 'Public';
+    if (level === 'friends') return 'Friends';
+    return 'Private';
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search post content..."
+            value={filters.search}
+            onChange={(e) => onFiltersChange({ ...filters, search: e.target.value, page: 1 })}
+            className="pl-10"
+          />
+        </div>
+        <select
+          value={filters.status}
+          onChange={(e) => onFiltersChange({ ...filters, status: e.target.value, page: 1 })}
+          className="px-3 py-2 border rounded-md bg-background text-sm"
+        >
+          <option value="all">All Posts</option>
+          <option value="active">Active</option>
+          <option value="hidden">Hidden</option>
+          <option value="pinned">Pinned</option>
+          <option value="reported">Reported</option>
+        </select>
+        <select
+          value={filters.privacy}
+          onChange={(e) => onFiltersChange({ ...filters, privacy: e.target.value, page: 1 })}
+          className="px-3 py-2 border rounded-md bg-background text-sm"
+        >
+          <option value="all">All Privacy</option>
+          <option value="public">Public</option>
+          <option value="friends">Friends Only</option>
+          <option value="private">Private</option>
+        </select>
+        <select
+          value={filters.sortBy}
+          onChange={(e) => onFiltersChange({ ...filters, sortBy: e.target.value, page: 1 })}
+          className="px-3 py-2 border rounded-md bg-background text-sm"
+        >
+          <option value="newest">Newest First</option>
+          <option value="most_engagement">Most Engagement</option>
+        </select>
+      </div>
+
+      {pagination && (
+        <p className="text-sm text-muted-foreground">
+          Showing {posts.length} of {pagination.total} posts
+        </p>
+      )}
+
+      {/* Posts Grid — 4 per row */}
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        {posts.map((post) => (
+          <Card
+            key={post.id}
+            className={`flex flex-col overflow-hidden cursor-pointer hover:shadow-md transition-shadow${post.is_deleted ? ' opacity-60 border-dashed' : ''}`}
+            onClick={() => {
+              if (post.media_urls && post.media_urls.length > 0) {
+                const allMedia = post.media_urls.map((m) => ({
+                  url: m,
+                  type: (post.media_type === 'video' ? 'video' : 'image') as 'image' | 'video',
+                }));
+                onViewMedia(
+                  post.media_urls[0],
+                  post.media_type === 'video' ? 'video' : 'image',
+                  allMedia,
+                  post.user?.preferences?.fullName || post.user?.username || 'Post',
+                );
+              }
+            }}
+          >
+            {/* Thumbnail */}
+            {post.media_urls && post.media_urls.length > 0 && (
+              <div className="relative aspect-video w-full overflow-hidden bg-muted">
+                {post.media_type === 'video' ? (
+                  <video src={post.media_urls[0]} className="w-full h-full object-cover" />
+                ) : (
+                  <img src={post.media_urls[0]} alt="Post media" className="w-full h-full object-cover" />
+                )}
+                {post.media_urls.length > 1 && (
+                  <span className="absolute bottom-1 right-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded">
+                    +{post.media_urls.length - 1}
+                  </span>
+                )}
+              </div>
+            )}
+
+            <CardContent className="p-3 flex flex-col gap-2 flex-1">
+              {/* User row */}
+              <div className="flex items-center gap-2 min-w-0">
+                {post.user?.avatar_url ? (
+                  <img src={post.user.avatar_url} alt={post.user.username} className="h-6 w-6 rounded-full object-cover flex-shrink-0" />
+                ) : (
+                  <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                    <Users className="h-3 w-3 text-muted-foreground" />
+                  </div>
+                )}
+                <p className="text-xs font-medium truncate">
+                  {post.user?.preferences?.fullName || post.user?.username || 'Unknown'}
+                  {post.user?.is_verified && <CheckCircle className="inline h-2.5 w-2.5 ml-0.5 text-blue-500" />}
+                </p>
+              </div>
+
+              {/* Content */}
+              {post.content && (
+                <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                  {post.content}
+                </p>
+              )}
+
+              {/* Badges */}
+              <div className="flex flex-wrap gap-1">
+                {post.is_pinned && (
+                  <Badge variant="secondary" className="text-[10px] px-1 py-0 bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
+                    <Pin className="h-2.5 w-2.5 mr-0.5" />Pinned
+                  </Badge>
+                )}
+                {post.is_deleted && (
+                  <Badge variant="destructive" className="text-[10px] px-1 py-0">
+                    <EyeOff className="h-2.5 w-2.5 mr-0.5" />Hidden
+                  </Badge>
+                )}
+                {post.reportCount > 0 && (
+                  <Badge variant="destructive" className="text-[10px] px-1 py-0">
+                    <Flag className="h-2.5 w-2.5 mr-0.5" />{post.reportCount}
+                  </Badge>
+                )}
+                <Badge variant="outline" className="text-[10px] px-1 py-0 flex items-center gap-0.5">
+                  {privacyIcon(post.privacy_level)}
+                  {privacyLabel(post.privacy_level)}
+                </Badge>
+              </div>
+
+              {/* Stats */}
+              <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                <span className="flex items-center gap-0.5"><Heart className="h-3 w-3" />{post.likes_count}</span>
+                <span className="flex items-center gap-0.5"><MessageSquare className="h-3 w-3" />{post.comments_count}</span>
+                <span className="flex items-center gap-0.5"><Share2 className="h-3 w-3" />{post.shares_count}</span>
+                <span className="flex items-center gap-0.5"><Gift className="h-3 w-3" />{post.gifts_count}</span>
+              </div>
+
+              {/* Date */}
+              <p className="text-[10px] text-muted-foreground">
+                {new Date(post.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </p>
+
+              {/* Actions */}
+              {canModerate && (
+                <div className="flex gap-1.5 pt-1.5 border-t mt-auto" onClick={(e) => e.stopPropagation()}>
+                  {post.is_deleted ? (
+                    <Button size="sm" variant="outline" className="h-7 text-xs flex-1" onClick={() => onRestore(post.id)}>
+                      <Eye className="h-3 w-3 mr-1" />Restore
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="destructive" className="h-7 text-xs flex-1" onClick={() => onHide(post.id)}>
+                      <EyeOff className="h-3 w-3 mr-1" />Hide
+                    </Button>
+                  )}
+                  {!post.is_deleted && (
+                    post.is_pinned ? (
+                      <Button size="sm" variant="outline" className="h-7 text-xs px-2" onClick={() => onUnpin(post.id)}>
+                        <PinOff className="h-3 w-3" />
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" className="h-7 text-xs px-2" onClick={() => onPin(post.id)}>
+                        <Pin className="h-3 w-3" />
+                      </Button>
+                    )
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {pagination && pagination.totalPages > 1 && (
+        <div className="flex items-center justify-between pt-4">
+          <p className="text-sm text-muted-foreground">
+            Page {pagination.page} of {pagination.totalPages}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onFiltersChange({ ...filters, page: filters.page - 1 })}
+              disabled={filters.page <= 1}
+            >
+              <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onFiltersChange({ ...filters, page: filters.page + 1 })}
+              disabled={filters.page >= pagination.totalPages}
+            >
+              Next <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {posts.length === 0 && (
+        <div className="text-center py-12 text-muted-foreground">
+          <FileText className="h-10 w-10 mx-auto mb-3 opacity-40" />
+          <p>No posts found</p>
+        </div>
       )}
     </div>
   );

@@ -137,6 +137,40 @@ export interface Auction {
   };
 }
 
+export interface AdminPost {
+  id: string;
+  content: string | null;
+  media_urls: string[];
+  media_type: 'text' | 'image' | 'video' | 'mixed';
+  privacy_level: 'public' | 'friends' | 'private';
+  likes_count: number;
+  comments_count: number;
+  shares_count: number;
+  gifts_count: number;
+  is_pinned: boolean;
+  is_deleted: boolean;
+  created_at: string;
+  updated_at: string;
+  reportCount: number;
+  user?: {
+    id: string;
+    username?: string;
+    avatar_url?: string;
+    is_verified?: boolean;
+    preferences?: { fullName?: string };
+  };
+  mediaItems?: Array<{
+    id: string;
+    media_type: 'image' | 'video';
+    media_url: string;
+    thumbnail_url?: string;
+    duration?: number;
+    width?: number;
+    height?: number;
+    order_index: number;
+  }>;
+}
+
 export interface ContentModerationStats {
   products: {
     total: number;
@@ -165,10 +199,16 @@ export interface ContentModerationStats {
     active: number;
     ended: number;
   };
+  posts: {
+    total: number;
+    hidden: number;
+    reported: number;
+  };
 }
 
 export interface PaginationResponse<T> {
-  [key: string]: T[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
   pagination: {
     page: number;
     limit: number;
@@ -367,7 +407,7 @@ export const contentAPI = {
    */
   getReportedContent: async (filters?: {
     status?: 'pending' | 'under_review' | 'approved' | 'action_taken' | 'dismissed';
-    category?: 'product' | 'service' | 'chat' | 'user';
+    category?: 'product' | 'service' | 'chat' | 'user' | 'post';
     search?: string;
     page?: number;
     limit?: number;
@@ -399,6 +439,7 @@ export const contentAPI = {
       service: number;
       chat: number;
       user: number;
+      post: number;
     };
   }> => {
     return apiClient.get('/admin/content/reported/stats');
@@ -417,6 +458,73 @@ export const contentAPI = {
     },
   ): Promise<any> => {
     return apiClient.post(`/admin/content/reported/${reportId}/review`, review);
+  },
+
+  /**
+   * Get posts for moderation
+   * GET /admin/content/posts
+   */
+  getPosts: async (filters?: {
+    status?: string;
+    privacy?: string;
+    search?: string;
+    sortBy?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ posts: AdminPost[]; pagination: { page: number; limit: number; total: number; totalPages: number } }> => {
+    const params = new URLSearchParams();
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.privacy) params.append('privacy', filters.privacy);
+    if (filters?.search) params.append('search', filters.search);
+    if (filters?.sortBy) params.append('sortBy', filters.sortBy);
+    if (filters?.page) params.append('page', filters.page.toString());
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+    return apiClient.get(`/admin/content/posts${params.toString() ? `?${params.toString()}` : ''}`);
+  },
+
+  /**
+   * Get single post for moderation
+   * GET /admin/content/posts/:id
+   */
+  getPostById: async (postId: string): Promise<AdminPost | null> => {
+    try {
+      return await apiClient.get<AdminPost>(`/admin/content/posts/${postId}`);
+    } catch (error: any) {
+      if (error?.response?.status === 404) return null;
+      throw new Error(`Failed to fetch post: ${error?.response?.data?.message || error?.message}`);
+    }
+  },
+
+  /**
+   * Hide a post (admin soft-delete)
+   * POST /admin/content/posts/:id/hide
+   */
+  hidePost: async (postId: string, reason: string): Promise<{ message: string }> => {
+    return apiClient.post<{ message: string }>(`/admin/content/posts/${postId}/hide`, { reason });
+  },
+
+  /**
+   * Restore a hidden post
+   * POST /admin/content/posts/:id/restore
+   */
+  restorePost: async (postId: string): Promise<{ message: string }> => {
+    return apiClient.post<{ message: string }>(`/admin/content/posts/${postId}/restore`, {});
+  },
+
+  /**
+   * Pin a post
+   * POST /admin/content/posts/:id/pin
+   */
+  pinPost: async (postId: string): Promise<{ message: string }> => {
+    return apiClient.post<{ message: string }>(`/admin/content/posts/${postId}/pin`, {});
+  },
+
+  /**
+   * Unpin a post
+   * POST /admin/content/posts/:id/unpin
+   */
+  unpinPost: async (postId: string): Promise<{ message: string }> => {
+    return apiClient.post<{ message: string }>(`/admin/content/posts/${postId}/unpin`, {});
   },
 
   /**

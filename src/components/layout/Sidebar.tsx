@@ -27,6 +27,8 @@ import {
   ClipboardList,
   Building2,
   Scale,
+  Handshake,
+  Settings,
 } from 'lucide-react';
 
 interface NavItem {
@@ -83,6 +85,12 @@ const navItems: NavItem[] = [
     permission: 'view_riders',
   },
   {
+    title: 'Partnerships',
+    href: '/dashboard/partnerships',
+    icon: Handshake,
+    permission: 'view_riders',
+  },
+  {
     title: 'Finance',
     href: '/dashboard/finance',
     icon: DollarSign,
@@ -118,6 +126,12 @@ const navItems: NavItem[] = [
     title: 'Departments',
     href: '/dashboard/departments',
     icon: Building2,
+    permission: 'manage_departments',
+  },
+  {
+    title: 'Website Management',
+    href: '/dashboard/website-management',
+    icon: Settings,
     permission: 'manage_departments',
   },
   {

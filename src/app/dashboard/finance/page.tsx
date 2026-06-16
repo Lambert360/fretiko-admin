@@ -16,7 +16,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { financeAPI, type RevenueStats, type EscrowHealth, type Payout, type Deposit, type TotalPlatformFunds, type UserBalance, type PlatformWallet, type BankAccount, type CreateBankAccountDto, type UpdateBankAccountDto, type WithdrawRequestDto, type PlatformWithdrawal, type GiftStats, type UserGiftHolding, type VirtualGift, type CreateGiftDto, type UpdateGiftDto, type RegionalRevenueResponse, type ProviderPerformanceResponse, type TransactionPatternsResponse, type EnhancedRevenueSummary } from '@/lib/api/finance';
+import { financeAPI, type RevenueStats, type EscrowHealth, type Payout, type Deposit, type TotalPlatformFunds, type UserBalance, type PlatformWallet, type BankAccount, type CreateBankAccountDto, type UpdateBankAccountDto, type WithdrawRequestDto, type PlatformWithdrawal, type GiftStats, type UserGiftHolding, type VirtualGift, type CreateGiftDto, type UpdateGiftDto, type RegionalRevenueResponse, type ProviderPerformanceResponse, type TransactionPatternsResponse, type EnhancedRevenueSummary, type Bank, type AccountPreview } from '@/lib/api/finance';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -40,6 +40,31 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+
+const SUPPORTED_BANK_COUNTRIES = [
+  { code: 'NG', name: 'Nigeria', currency: 'NGN' },
+  { code: 'GH', name: 'Ghana', currency: 'GHS' },
+  { code: 'KE', name: 'Kenya', currency: 'KES' },
+  { code: 'UG', name: 'Uganda', currency: 'UGX' },
+  { code: 'TZ', name: 'Tanzania', currency: 'TZS' },
+  { code: 'ZA', name: 'South Africa', currency: 'ZAR' },
+  { code: 'RW', name: 'Rwanda', currency: 'RWF' },
+  { code: 'ZM', name: 'Zambia', currency: 'ZMW' },
+  { code: 'MW', name: 'Malawi', currency: 'MWK' },
+  { code: 'BW', name: 'Botswana', currency: 'BWP' },
+  { code: 'MZ', name: 'Mozambique', currency: 'MZN' },
+] as const;
+
+const getDefaultAddBankAccountForm = (): CreateBankAccountDto => ({
+  accountName: '',
+  bankName: '',
+  bankCode: '',
+  accountNumber: '',
+  accountType: 'savings',
+  currency: 'NGN',
+  country: 'NG',
+  isDefault: false,
+});
 
 const FinancePage = () => {
   const { isSuperAdmin, hasPermission } = useAuth();
@@ -86,6 +111,13 @@ const FinancePage = () => {
   const [editBankAccountDialog, setEditBankAccountDialog] = useState<{ open: boolean; account: BankAccount | null }>({ open: false, account: null });
   const [deleteBankAccountDialog, setDeleteBankAccountDialog] = useState<{ open: boolean; account: BankAccount | null }>({ open: false, account: null });
   const [withdrawDialog, setWithdrawDialog] = useState(false);
+  const [addBankAccountForm, setAddBankAccountForm] = useState<CreateBankAccountDto>(getDefaultAddBankAccountForm());
+  const [platformBanks, setPlatformBanks] = useState<Bank[]>([]);
+  const [bankSearchQuery, setBankSearchQuery] = useState('');
+  const [verifiedPlatformAccount, setVerifiedPlatformAccount] = useState<AccountPreview | null>(null);
+  const [bankVerificationError, setBankVerificationError] = useState('');
+  const [isBankLookupLoading, setIsBankLookupLoading] = useState(false);
+  const [isBankVerificationLoading, setIsBankVerificationLoading] = useState(false);
   const [bankAccountForm, setBankAccountForm] = useState<CreateBankAccountDto>({
     accountName: '',
     bankName: '',
@@ -128,6 +160,7 @@ const FinancePage = () => {
   const [analyticsPeriod, setAnalyticsPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>('monthly');
 
   const canViewFinance = isSuperAdmin || hasPermission('view_revenue');
+  const filteredPlatformBanks = platformBanks.filter((bank) => bank.name.toLowerCase().includes(bankSearchQuery.toLowerCase()));
 
   useEffect(() => {
     if (canViewFinance) {
@@ -350,6 +383,141 @@ const FinancePage = () => {
     }
   };
 
+  const resetAddBankAccountState = () => {
+    setAddBankAccountForm(getDefaultAddBankAccountForm());
+    setPlatformBanks([]);
+    setBankSearchQuery('');
+    setVerifiedPlatformAccount(null);
+    setBankVerificationError('');
+    setIsBankLookupLoading(false);
+    setIsBankVerificationLoading(false);
+  };
+
+  const fetchPlatformBanks = async (countryCode: string) => {
+    try {
+      setIsBankLookupLoading(true);
+      const banks = await financeAPI.getPlatformBanks(countryCode);
+      setPlatformBanks(banks);
+    } catch (err: any) {
+      setPlatformBanks([]);
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to load banks for the selected country',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsBankLookupLoading(false);
+    }
+  };
+
+  const handleAddBankAccountDialogChange = (open: boolean) => {
+    setAddBankAccountDialog(open);
+
+    if (open) {
+      void fetchPlatformBanks(addBankAccountForm.country || 'NG');
+      return;
+    }
+
+    resetAddBankAccountState();
+  };
+
+  const handleAddBankCountryChange = (countryCode: string) => {
+    const selectedCountry = SUPPORTED_BANK_COUNTRIES.find((country) => country.code === countryCode);
+
+    setAddBankAccountForm((prev) => ({
+      ...prev,
+      country: countryCode,
+      currency: selectedCountry?.currency || prev.currency,
+      bankName: '',
+      bankCode: '',
+      accountName: '',
+    }));
+    setBankSearchQuery('');
+    setVerifiedPlatformAccount(null);
+    setBankVerificationError('');
+    void fetchPlatformBanks(countryCode);
+  };
+
+  const handleAddBankSelection = (bankCode: string) => {
+    const selectedBank = platformBanks.find((bank) => bank.code === bankCode);
+
+    setAddBankAccountForm((prev) => ({
+      ...prev,
+      bankCode,
+      bankName: selectedBank?.name || '',
+      accountName: '',
+    }));
+    setVerifiedPlatformAccount(null);
+    setBankVerificationError('');
+  };
+
+  const handleAddBankAccountNumberChange = (value: string) => {
+    const accountNumber = value.replace(/\D/g, '').slice(0, 20);
+
+    setAddBankAccountForm((prev) => ({
+      ...prev,
+      accountNumber,
+      accountName: '',
+    }));
+    setVerifiedPlatformAccount(null);
+    setBankVerificationError('');
+  };
+
+  const handleVerifyPlatformBankAccount = async () => {
+    if (!addBankAccountForm.accountNumber?.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Please enter an account number',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!addBankAccountForm.bankCode) {
+      toast({
+        title: 'Error',
+        description: 'Please select a bank',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (addBankAccountForm.accountNumber.trim().length < 10) {
+      toast({
+        title: 'Error',
+        description: 'Account number must be at least 10 digits',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setIsBankVerificationLoading(true);
+      setBankVerificationError('');
+      setVerifiedPlatformAccount(null);
+      const preview = await financeAPI.previewPlatformBankAccount({
+        accountNumber: addBankAccountForm.accountNumber.trim(),
+        bankCode: addBankAccountForm.bankCode,
+      });
+
+      setVerifiedPlatformAccount(preview);
+      setAddBankAccountForm((prev) => ({
+        ...prev,
+        accountName: preview.accountName,
+      }));
+    } catch (err: any) {
+      const message = err.response?.data?.message || 'Could not verify account. Please check your details.';
+      setBankVerificationError(message);
+      toast({
+        title: 'Verification Failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsBankVerificationLoading(false);
+    }
+  };
+
   const fetchPlatformWithdrawals = async (page: number = 1) => {
     try {
       const response = await financeAPI.getPlatformWithdrawals(page, 50);
@@ -387,20 +555,24 @@ const FinancePage = () => {
   };
 
   const handleAddBankAccount = async () => {
+    if (!addBankAccountForm.accountName?.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Please verify the account or enter an account name manually',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
       setIsActionLoading('add-bank');
-      await financeAPI.addPlatformBankAccount(bankAccountForm);
-      setAddBankAccountDialog(false);
-      setBankAccountForm({
-        accountName: '',
-        bankName: '',
-        bankCode: '',
-        accountNumber: '',
-        accountType: 'checking',
-        currency: 'USD',
-        country: 'US',
-        isDefault: false,
+      await financeAPI.addPlatformBankAccount({
+        ...addBankAccountForm,
+        accountName: addBankAccountForm.accountName.trim(),
+        accountNumber: addBankAccountForm.accountNumber.trim(),
       });
+      setAddBankAccountDialog(false);
+      resetAddBankAccountState();
       await fetchPlatformBankAccounts();
       toast({
         title: 'Success',
@@ -1701,7 +1873,7 @@ const FinancePage = () => {
                           {getStatusBadge(payout.status)}
                         </div>
                         <p className="text-sm text-muted-foreground">
-                          {formatAmount((payout as any).amount)} • {formatDateTime((payout as any).createdAt || (payout as any).created_at)}
+                          {formatAmount(Number(payout.freti_amount) || 0)} • {formatDateTime((payout as any).created_at || (payout as any).createdAt)}
                         </p>
                         {(payout as any).metadata?.bankAccount && (
                           <p className="text-xs text-muted-foreground">
@@ -1798,7 +1970,7 @@ const FinancePage = () => {
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{formatAmount((totalFunds as any)?.totalDeposits || 0)}</div>
+                  <div className="text-2xl font-bold">{formatAmount(Number(totalFunds?.totalDeposited) || 0)}</div>
                   <p className="text-xs text-muted-foreground">
                     All time deposits
                   </p>
@@ -1810,7 +1982,7 @@ const FinancePage = () => {
                   <Clock className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{formatAmount((totalFunds as any)?.pendingDeposits || 0)}</div>
+                  <div className="text-2xl font-bold">{formatAmount(Number((totalFunds as any)?.pendingDeposits) || 0)}</div>
                   <p className="text-xs text-muted-foreground">
                     Awaiting processing
                   </p>
@@ -1822,9 +1994,9 @@ const FinancePage = () => {
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{formatAmount((totalFunds as any)?.processedDeposits || 0)}</div>
+                  <div className="text-2xl font-bold">{formatAmount(Number(totalFunds?.totalDeposited) || 0)}</div>
                   <p className="text-xs text-muted-foreground">
-                    Successfully completed
+                    {totalFunds?.totalDepositsCount || 0} transactions completed
                   </p>
                 </CardContent>
               </Card>
@@ -1908,7 +2080,7 @@ const FinancePage = () => {
                           {getDepositStatusBadge(deposit.status)}
                         </div>
                         <p className="text-sm text-muted-foreground">
-                          {formatAmount(deposit.amount)} • {getPaymentMethodLabel(deposit.paymentMethod)} • {formatDateTime(deposit.createdAt)}
+                          {formatAmount(Number(deposit.amount) || 0)} • {getPaymentMethodLabel(deposit.paymentMethod)} • {formatDateTime(deposit.createdAt)}
                         </p>
                         {(deposit as any).metadata?.reference && (
                           <p className="text-xs text-muted-foreground">
@@ -2010,7 +2182,7 @@ const FinancePage = () => {
                       <div className="space-y-1">
                         <p className="text-sm font-medium">User {balance.userId}</p>
                         <p className="text-sm text-muted-foreground">
-                          Available: {formatAmount((balance as any).availableBalance)} • Pending: {formatAmount((balance as any).pendingBalance)}
+                          Available: {formatAmount(Number(balance.availableBalance) || 0)} • Pending: {formatAmount(Number(balance.pendingWithdrawal) || 0)}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           Total: {formatAmount((balance as any).totalBalance)} • Last updated: {formatDateTime((balance as any).updatedAt)}
@@ -2070,7 +2242,7 @@ const FinancePage = () => {
         </div>
       )}
 
-      {activeTab === 'platform-wallet' && (isSuperAdmin || hasPermission('view_platform_wallet')) ? (
+      {activeTab === 'platform-wallet' && (canViewFinance || hasPermission('view_wallet_transactions')) ? (
         <div className="space-y-6">
           {/* Platform Wallet Header with Super Admin Badge */}
           <div className="flex items-center justify-between">
@@ -2159,7 +2331,7 @@ const FinancePage = () => {
                   <CardTitle>Bank Accounts</CardTitle>
                   <CardDescription>Manage platform withdrawal accounts</CardDescription>
                 </div>
-                <Button onClick={() => setAddBankAccountDialog(true)}>
+                <Button onClick={() => handleAddBankAccountDialogChange(true)}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Account
                 </Button>
@@ -2244,7 +2416,7 @@ const FinancePage = () => {
                           </Badge>
                         </div>
                         <p className="text-sm text-muted-foreground">
-                          {formatAmount((withdrawal as any).amount)} • {formatDateTime((withdrawal as any).createdAt || (withdrawal as any).created_at)}
+                          {formatAmount(Number(withdrawal.freti_amount) || 0)} • {formatDateTime(withdrawal.created_at)}
                         </p>
                         {withdrawal.bankAccount && (
                           <p className="text-xs text-muted-foreground">
@@ -2302,12 +2474,12 @@ const FinancePage = () => {
       ) : null }
 
       {/* Platform Wallet - Access Restricted */}
-      {activeTab === 'platform-wallet' && !isSuperAdmin ? (
+      {activeTab === 'platform-wallet' && !(canViewFinance || hasPermission('view_wallet_transactions')) ? (
         <div className="flex items-center justify-center h-96">
           <div className="text-center">
             <AlertTriangle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">Access Restricted</h3>
-            <p className="text-muted-foreground">Platform wallet access is restricted to super administrators only.</p>
+            <p className="text-muted-foreground">Platform wallet access requires finance clearance.</p>
           </div>
         </div>
       ) : null}
@@ -2324,7 +2496,7 @@ const FinancePage = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-xs text-muted-foreground">Amount</Label>
-                  <p className="text-sm font-medium">{formatAmount((payoutDetailsDialog.payout as any).amount)}</p>
+                  <p className="text-sm font-medium">{formatAmount(Number(payoutDetailsDialog.payout?.freti_amount) || 0)}</p>
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">Status</Label>
@@ -2365,7 +2537,7 @@ const FinancePage = () => {
           {processPayoutDialog.payout && (
             <div className="space-y-4">
               <div className="p-4 bg-muted rounded-md">
-                <p className="text-sm font-medium">Amount: {formatAmount((processPayoutDialog.payout as any).amount)}</p>
+                <p className="text-sm font-medium">Amount: {formatAmount(Number(processPayoutDialog.payout?.freti_amount) || 0)}</p>
                 <p className="text-sm text-muted-foreground">User: {(processPayoutDialog.payout as any).userId || (processPayoutDialog.payout as any).user_id}</p>
               </div>
               <p className="text-sm text-muted-foreground">
@@ -2392,101 +2564,173 @@ const FinancePage = () => {
       </Dialog>
 
       {/* Add Bank Account Dialog */}
-      <Dialog open={addBankAccountDialog} onOpenChange={setAddBankAccountDialog}>
+      <Dialog open={addBankAccountDialog} onOpenChange={handleAddBankAccountDialogChange}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Add Bank Account</DialogTitle>
             <DialogDescription>Add a new bank account for platform withdrawals</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div>
-              <Label htmlFor="account-name">Account Name</Label>
-              <Input
-                id="account-name"
-                value={bankAccountForm.accountName}
-                onChange={(e) => setBankAccountForm(prev => ({ ...prev, accountName: e.target.value }))}
-                placeholder="Enter account name"
-              />
+            <div className="rounded-md border border-blue-200/60 bg-blue-50/60 p-3 text-sm text-muted-foreground">
+              Select a country, choose a bank, and verify the account details before saving the withdrawal account.
             </div>
             <div>
-              <Label htmlFor="bank-name">Bank Name</Label>
-              <Input
-                id="bank-name"
-                value={bankAccountForm.bankName}
-                onChange={(e) => setBankAccountForm(prev => ({ ...prev, bankName: e.target.value }))}
-                placeholder="Enter bank name"
-              />
-            </div>
-            <div>
-              <Label htmlFor="bank-code">Bank Code</Label>
-              <Input
-                id="bank-code"
-                value={bankAccountForm.bankCode}
-                onChange={(e) => setBankAccountForm(prev => ({ ...prev, bankCode: e.target.value }))}
-                placeholder="Enter bank code"
-              />
-            </div>
-            <div>
-              <Label htmlFor="account-number">Account Number</Label>
-              <Input
-                id="account-number"
-                value={bankAccountForm.accountNumber}
-                onChange={(e) => setBankAccountForm(prev => ({ ...prev, accountNumber: e.target.value }))}
-                placeholder="Enter account number"
-              />
-            </div>
-            <div>
-              <Label htmlFor="account-type">Account Type</Label>
+              <Label htmlFor="platform-country">Country</Label>
               <select
-                id="account-type"
-                value={bankAccountForm.accountType}
-                onChange={(e) => setBankAccountForm(prev => ({ ...prev, accountType: e.target.value as 'checking' | 'savings' }))}
+                id="platform-country"
+                value={addBankAccountForm.country}
+                onChange={(e) => handleAddBankCountryChange(e.target.value)}
                 className="w-full border border-input bg-background px-3 py-2 rounded-md text-sm"
               >
-                <option value="checking">Checking</option>
-                <option value="savings">Savings</option>
+                {SUPPORTED_BANK_COUNTRIES.map((country) => (
+                  <option key={country.code} value={country.code}>
+                    {country.name} ({country.code})
+                  </option>
+                ))}
               </select>
             </div>
             <div>
-              <Label htmlFor="currency">Currency</Label>
+              <Label htmlFor="platform-bank-search">Search Bank</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="platform-bank-search"
+                  value={bankSearchQuery}
+                  onChange={(e) => setBankSearchQuery(e.target.value)}
+                  placeholder={isBankLookupLoading ? 'Loading banks...' : 'Search bank name'}
+                  className="pl-9"
+                  disabled={isBankLookupLoading || platformBanks.length === 0}
+                />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="platform-bank">Bank</Label>
+              <select
+                id="platform-bank"
+                value={addBankAccountForm.bankCode}
+                onChange={(e) => handleAddBankSelection(e.target.value)}
+                className="w-full border border-input bg-background px-3 py-2 rounded-md text-sm"
+                disabled={isBankLookupLoading || platformBanks.length === 0}
+              >
+                <option value="">
+                  {isBankLookupLoading
+                    ? 'Loading banks...'
+                    : filteredPlatformBanks.length > 0
+                    ? 'Select a bank'
+                    : platformBanks.length > 0
+                    ? 'No banks match your search'
+                    : 'No banks available'}
+                </option>
+                {filteredPlatformBanks.map((bank) => (
+                  <option key={bank.id} value={bank.code}>
+                    {bank.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label htmlFor="platform-account-number">Account Number</Label>
               <Input
-                id="currency"
-                value={bankAccountForm.currency}
-                onChange={(e) => setBankAccountForm(prev => ({ ...prev, currency: e.target.value }))}
-                placeholder="USD"
+                id="platform-account-number"
+                value={addBankAccountForm.accountNumber}
+                onChange={(e) => handleAddBankAccountNumberChange(e.target.value)}
+                placeholder="0123456789"
+                inputMode="numeric"
+                maxLength={20}
               />
             </div>
             <div>
-              <Label htmlFor="country">Country</Label>
+              <Label htmlFor="platform-account-type">Account Type</Label>
+              <select
+                id="platform-account-type"
+                value={addBankAccountForm.accountType}
+                onChange={(e) => setAddBankAccountForm((prev) => ({ ...prev, accountType: e.target.value as 'checking' | 'savings' | 'current' }))}
+                className="w-full border border-input bg-background px-3 py-2 rounded-md text-sm"
+              >
+                <option value="savings">Savings</option>
+                <option value="checking">Checking</option>
+                <option value="current">Current</option>
+              </select>
+            </div>
+            <div>
+              <Label htmlFor="platform-currency">Currency</Label>
               <Input
-                id="country"
-                value={bankAccountForm.country}
-                onChange={(e) => setBankAccountForm(prev => ({ ...prev, country: e.target.value }))}
-                placeholder="US"
+                id="platform-currency"
+                value={addBankAccountForm.currency}
+                readOnly
+                disabled
               />
             </div>
             <div className="flex items-center space-x-2">
               <input
                 type="checkbox"
                 id="is-default"
-                checked={!!bankAccountForm.isDefault}
-                onChange={(e) => setBankAccountForm(prev => ({ ...prev, isDefault: e.target.checked }))}
+                checked={!!addBankAccountForm.isDefault}
+                onChange={(e) => setAddBankAccountForm((prev) => ({ ...prev, isDefault: e.target.checked }))}
               />
               <Label htmlFor="is-default">Set as default account</Label>
             </div>
+            <Button
+              type="button"
+              onClick={handleVerifyPlatformBankAccount}
+              disabled={!addBankAccountForm.bankCode || !addBankAccountForm.accountNumber || isBankLookupLoading || isBankVerificationLoading}
+              className="w-full"
+            >
+              {isBankVerificationLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Verifying...
+                </>
+              ) : verifiedPlatformAccount ? (
+                <>
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Verified
+                </>
+              ) : (
+                'Verify Account'
+              )}
+            </Button>
+            {verifiedPlatformAccount ? (
+              <div className="rounded-md border border-green-200 bg-green-50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-green-700">Verified Account Name</p>
+                <p className="mt-1 text-sm font-semibold text-green-900">{verifiedPlatformAccount.accountName}</p>
+              </div>
+            ) : null}
+            {bankVerificationError && !verifiedPlatformAccount ? (
+              <div className="space-y-2">
+                <div className="rounded-md border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
+                  {bankVerificationError}
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="manual-account-name">Account Name (manual entry)</Label>
+                  <Input
+                    id="manual-account-name"
+                    value={addBankAccountForm.accountName}
+                    onChange={(e) => setAddBankAccountForm((prev) => ({ ...prev, accountName: e.target.value }))}
+                    placeholder="e.g. JOHN DOE"
+                  />
+                  <p className="text-xs text-muted-foreground">Verification is unavailable. Enter the account name exactly as it appears on the account.</p>
+                </div>
+              </div>
+            ) : null}
+            {!bankVerificationError && !verifiedPlatformAccount && (
+              <div className="rounded-md border border-green-200/60 bg-green-50/60 p-3 text-sm text-green-700">
+                Verify the account above to confirm the account name before saving.
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddBankAccountDialog(false)}>
+            <Button variant="outline" onClick={() => handleAddBankAccountDialogChange(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAddBankAccount} disabled={!!isActionLoading}>
+            <Button onClick={handleAddBankAccount} disabled={!!isActionLoading || !addBankAccountForm.accountName?.trim()}>
               {isActionLoading === 'add-bank' ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
                   Adding...
                 </>
               ) : (
-                'Add Account'
+                addBankAccountForm.accountName?.trim() ? 'Add Account' : 'Verify Account to Continue'
               )}
             </Button>
           </DialogFooter>

@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+﻿import { apiClient } from './client';
 
 /**
  * Logistics API
@@ -51,6 +51,105 @@ export interface LogisticsStats {
   onTimeDeliveryRate: number;
 }
 
+export interface PartnerApplication {
+  id: string;
+  trackingId: string;
+  companyName: string;
+  contactPersonName: string;
+  contactEmail: string;
+  contactPhone?: string;
+  headquartersAddress: string;
+  serviceAreas: string[];
+  vehicleFleet: Record<string, { count: number; photos?: string[] }>;
+  totalRiders?: number;
+  averageDailyDeliveries?: number;
+  yearsInOperation?: number;
+  serviceCategories?: string[];
+  registrationDocumentUrls?: string[];
+  insuranceDocumentUrls?: string[];
+  fleetDocumentUrls?: string[];
+  status: 'in_progress' | 'under_review' | 'verified' | 'rejected';
+  rejectionReason?: string;
+  adminNotes?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VerifiedPartner {
+  id: string;
+  applicationId: string;
+  companyName: string;
+  contactEmail: string;
+  contactPhone?: string;
+  headquartersAddress: string;
+  serviceAreas: string[];
+  partnerStatus: 'active' | 'suspended' | 'terminated';
+  totalRiders: number;
+  activeRiders: number;
+  totalDeliveries: number;
+  completedDeliveries: number;
+  averageDeliveryTime?: number;
+  onTimeDeliveryRate?: number;
+  totalRevenue: number;
+  platformCommission: number;
+  verifiedBy?: string;
+  verifiedAt: string;
+  verificationNotes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RiderVerification {
+  id: string;
+  userId: string;
+  fullName: string;
+  country: string;
+  state: string;
+  city?: string;
+  vehicleType: string;
+  vehicleMake?: string;
+  vehicleModel?: string;
+  vehicleYear?: number;
+  licensePlate?: string;
+  companyId?: string;
+  companyName?: string;
+  driverLicenseUrl?: string;
+  vehicleRegistrationUrl?: string;
+  insuranceDocumentUrl?: string;
+  profilePhotoUrl?: string;
+  yearsExperience?: number;
+  previousDeliveryCompanies?: string[];
+  status: 'in_progress' | 'under_review' | 'verified' | 'rejected';
+  rejectionReason?: string;
+  adminNotes?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VerifiedRider {
+  id: string;
+  userId: string;
+  verificationRequestId: string;
+  fullName: string;
+  vehicleType: string;
+  companyId?: string;
+  verificationStatus: 'active' | 'suspended' | 'terminated';
+  totalDeliveries: number;
+  completedDeliveries: number;
+  averageDeliveryTime?: number;
+  customerRating?: number;
+  onTimeRate?: number;
+  verifiedBy?: string;
+  verifiedAt: string;
+  verificationNotes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface RiderListResponse {
   riders: Rider[];
   total: number;
@@ -60,6 +159,26 @@ export interface RiderListResponse {
 
 export interface DeliveryListResponse {
   deliveries: Delivery[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface PartnerApplicationListResponse {
+  applications: PartnerApplication[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface PartnerApplicationResponse {
+  success?: boolean;
+  message?: string;
+  data?: PartnerApplicationListResponse;
+}
+
+export interface VerifiedRiderListResponse {
+  riders: VerifiedRider[];
   total: number;
   page: number;
   limit: number;
@@ -75,6 +194,21 @@ export interface LogisticsFilters {
 export interface DeliveryFilters {
   status?: 'pending' | 'assigned' | 'picked_up' | 'in_transit' | 'delivered' | 'cancelled' | 'all';
   riderId?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface ApplicationFilters {
+  status?: 'in_progress' | 'under_review' | 'verified' | 'rejected' | 'all';
+  type?: 'company' | 'rider' | 'all';
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface PartnerFilters {
+  status?: 'active' | 'suspended' | 'terminated' | 'all';
   search?: string;
   page?: number;
   limit?: number;
@@ -141,5 +275,45 @@ export const logisticsAPI = {
   updateDeliveryStatus: async (deliveryId: string, status: Delivery['status']): Promise<void> => {
     await apiClient.patch(`/admin/logistics/deliveries/${deliveryId}/status`, { status });
   },
-};
 
+  getPartnerApplications: async (filters?: ApplicationFilters): Promise<PartnerApplicationResponse | PartnerApplicationListResponse> => {
+    const params = new URLSearchParams();
+    if (filters?.status && filters.status !== 'all') params.append('status', filters.status);
+    if (filters?.type && filters.type !== 'all') params.append('type', filters.type);
+    if (filters?.search) params.append('search', filters.search);
+    if (filters?.page) params.append('page', filters.page.toString());
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+
+    return apiClient.get(`/logistics-partners/applications${params.toString() ? `?${params.toString()}` : ''}`);
+  },
+
+  verifyPartnerApplication: async (applicationId: string, notes?: string): Promise<void> => {
+    await apiClient.post(`/logistics-partners/applications/${applicationId}/verify`, { notes });
+  },
+
+  rejectPartnerApplication: async (applicationId: string, reason: string, notes?: string): Promise<void> => {
+    await apiClient.post(`/logistics-partners/applications/${applicationId}/reject`, { reason, notes });
+  },
+
+  getVerifiedRiders: async (filters?: PartnerFilters): Promise<VerifiedRiderListResponse> => {
+    const params = new URLSearchParams();
+    if (filters?.status && filters.status !== 'all') params.append('status', filters.status);
+    if (filters?.search) params.append('search', filters.search);
+    if (filters?.page) params.append('page', filters.page.toString());
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+
+    return apiClient.get<VerifiedRiderListResponse>(`/admin/logistics/verified-riders${params.toString() ? `?${params.toString()}` : ''}`);
+  },
+
+  verifyRiderApplication: async (verificationId: string, notes?: string): Promise<void> => {
+    await apiClient.post(`/admin/logistics/rider-verifications/${verificationId}/verify`, { notes });
+  },
+
+  rejectRiderApplication: async (verificationId: string, reason: string, notes?: string): Promise<void> => {
+    await apiClient.post(`/admin/logistics/rider-verifications/${verificationId}/reject`, { reason, notes });
+  },
+
+  getPartnerMetrics: async (partnerId: string): Promise<any> => {
+    return apiClient.get(`/admin/logistics/partners/${partnerId}/metrics`);
+  },
+};

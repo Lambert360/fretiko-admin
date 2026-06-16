@@ -226,6 +226,7 @@ export default function OrdersPage() {
         ...(refundType === 'partial' && {
           riderEarnings,
           vendorAmount,
+          platformFee,
         }),
       };
 
@@ -886,14 +887,20 @@ export default function OrdersPage() {
                       {refundType === 'partial' && (
                         <div className="mt-3 space-y-2">
                           <div className="grid grid-cols-3 gap-2">
-                            <div>
-                              <label className="text-sm font-medium">Rider Earnings</label>
+                            <div className={!selectedOrder.riderId ? 'opacity-40 cursor-not-allowed' : ''}>
+                              <label className="text-sm font-medium">
+                                Rider Earnings
+                                {!selectedOrder.riderId && (
+                                  <span className="ml-1 text-xs font-normal text-muted-foreground">(no rider)</span>
+                                )}
+                              </label>
                               <Input
                                 type="number"
                                 value={riderEarnings}
                                 onChange={(e) => setRiderEarnings(Number(e.target.value))}
                                 placeholder="0.00"
                                 className="mt-1"
+                                disabled={!selectedOrder.riderId}
                               />
                             </div>
                             <div>

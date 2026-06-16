@@ -19,6 +19,7 @@ export interface ContentReport {
   reportCategory: ReportCategory;
   productId?: string;
   serviceId?: string;
+  postId?: string;
   chatId?: string;
   reportedUserId?: string;
   reportedUserName?: string;
