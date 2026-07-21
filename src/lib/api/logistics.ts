@@ -51,6 +51,58 @@ export interface LogisticsStats {
   onTimeDeliveryRate: number;
 }
 
+export interface DailyStat {
+  date: string;
+  assignments: number;
+  replacements: number;
+  successRate: number;
+}
+
+export interface HourlyStat {
+  hour: string;
+  assignments: number;
+  replacements: number;
+}
+
+export interface TopPerformer {
+  riderId: string;
+  riderName: string;
+  assignments: number;
+  successRate: number;
+  averageTime: number;
+  rating: number;
+}
+
+export interface StatusBreakdown {
+  status: string;
+  count: number;
+  percentage: number;
+}
+
+export interface GeographyStat {
+  region: string;
+  count: number;
+  percentage: number;
+}
+
+export interface RiderAnalytics {
+  overview: {
+    totalRiders: number;
+    activeRiders: number;
+    totalAssignments: number;
+    successfulAssignments: number;
+    replacementRate: number;
+    averageAssignmentTime: number;
+    averageDeliveryTime: number;
+    onTimeDeliveryRate: number;
+  };
+  dailyStats: DailyStat[];
+  hourlyStats: HourlyStat[];
+  topPerformers: TopPerformer[];
+  statusBreakdown: StatusBreakdown[];
+  geography: GeographyStat[];
+}
+
 export interface PartnerApplication {
   id: string;
   trackingId: string;
@@ -258,6 +310,14 @@ export const logisticsAPI = {
    */
   getLogisticsStats: async (): Promise<LogisticsStats> => {
     return apiClient.get<LogisticsStats>('/admin/logistics/stats');
+  },
+
+  /**
+   * Get rider analytics for a time range
+   * GET /admin/logistics/analytics?timeRange=24h|7d|30d
+   */
+  getLogisticsAnalytics: async (timeRange: '24h' | '7d' | '30d' = '24h'): Promise<RiderAnalytics> => {
+    return apiClient.get<RiderAnalytics>(`/admin/logistics/analytics?timeRange=${timeRange}`);
   },
 
   /**

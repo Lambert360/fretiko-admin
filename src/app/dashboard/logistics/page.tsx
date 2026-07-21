@@ -15,7 +15,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { logisticsAPI, type Rider, type Delivery, type LogisticsStats } from '@/lib/api/logistics';
+import { logisticsAPI, type Rider, type Delivery, type LogisticsStats, type RiderAnalytics } from '@/lib/api/logistics';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -56,6 +56,13 @@ export default function LogisticsPage() {
   const [total, setTotal] = useState(0);
   const limit = 20;
 
+  // Analytics state
+  const [analyticsData, setAnalyticsData] = useState<RiderAnalytics | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsRefreshing, setAnalyticsRefreshing] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [analyticsTimeRange, setAnalyticsTimeRange] = useState<'24h' | '7d' | '30d'>('24h');
+
   // Dialog states
   const [riderDetailsDialog, setRiderDetailsDialog] = useState<{ open: boolean; rider: Rider | null }>({ open: false, rider: null });
   const [deliveryDetailsDialog, setDeliveryDetailsDialog] = useState<{ open: boolean; delivery: Delivery | null }>({ open: false, delivery: null });
@@ -78,11 +85,14 @@ export default function LogisticsPage() {
       fetchStats();
       if (activeTab === 'riders') {
         fetchRiders();
-      } else {
+      } else if (activeTab === 'deliveries') {
         fetchDeliveries();
+      } else if (activeTab === 'analytics') {
+        fetchAnalytics();
       }
     }
-  }, [canViewLogistics, activeTab, page, riderStatusFilter, deliveryStatusFilter, searchQuery]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canViewLogistics, activeTab, page, riderStatusFilter, deliveryStatusFilter, searchQuery, analyticsTimeRange]);
 
   // Fetch riders when assign rider dialog opens (if not already loaded)
   useEffect(() => {
@@ -104,6 +114,35 @@ export default function LogisticsPage() {
         variant: 'destructive',
       });
     }
+  };
+
+  const fetchAnalytics = async (refreshing = false) => {
+    try {
+      if (refreshing) {
+        setAnalyticsRefreshing(true);
+      } else {
+        setAnalyticsLoading(true);
+      }
+      setAnalyticsError(null);
+      const data = await logisticsAPI.getLogisticsAnalytics(analyticsTimeRange);
+      setAnalyticsData(data);
+    } catch (err: any) {
+      console.error('Failed to fetch analytics:', err);
+      const message = err.response?.data?.message || err.message || 'Failed to load analytics';
+      setAnalyticsError(message);
+      toast({
+        title: 'Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setAnalyticsLoading(false);
+      setAnalyticsRefreshing(false);
+    }
+  };
+
+  const handleAnalyticsRefresh = () => {
+    fetchAnalytics(true);
   };
 
   const fetchRiders = async () => {
@@ -620,7 +659,15 @@ export default function LogisticsPage() {
           </CardContent>
         </Card>
       ) : activeTab === 'analytics' ? (
-        <AdminAnalytics />
+        <AdminAnalytics
+          data={analyticsData}
+          loading={analyticsLoading}
+          error={analyticsError}
+          refreshing={analyticsRefreshing}
+          timeRange={analyticsTimeRange}
+          onTimeRangeChange={setAnalyticsTimeRange}
+          onRefresh={handleAnalyticsRefresh}
+        />
       ) : null}
       
       {/* Pagination - Only show for riders and deliveries tabs */}
