@@ -15,13 +15,15 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { analyticsAPI, type PlatformStats, type AnalyticsSummary, type TimeSeriesData, type AuctionAnalyticsSummary } from '@/lib/api/analytics';
+import { analyticsAPI, type PlatformStats, type AnalyticsSummary, type TimeSeriesData, type AuctionAnalyticsSummary, type ConversionMetrics, type VendorByOrders, type LiveSalesAnalytics as LiveSalesAnalyticsData } from '@/lib/api/analytics';
 import { InfoAlert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LineChart } from '@/components/charts/LineChart';
 import { EmptyState } from '@/components/ui/empty-state';
-import { BarChart3, TrendingUp, Users, ShoppingCart, DollarSign, AlertCircle, Calendar, Info, Gavel } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import LiveSalesAnalytics from '@/components/LiveSalesAnalytics';
+import { BarChart3, TrendingUp, Users, ShoppingCart, DollarSign, AlertCircle, Calendar, Info, Gavel, Clock, UserCheck, Award, Video } from 'lucide-react';
 import { formatCurrency, formatNumber } from '@/lib/utils/formatting';
 
 export default function AnalyticsPage() {
@@ -30,8 +32,13 @@ export default function AnalyticsPage() {
   const [analyticsSummary, setAnalyticsSummary] = useState<AnalyticsSummary | null>(null);
   const [timeSeriesData, setTimeSeriesData] = useState<TimeSeriesData[]>([]);
   const [auctionAnalytics, setAuctionAnalytics] = useState<AuctionAnalyticsSummary | null>(null);
+  const [conversionMetrics, setConversionMetrics] = useState<ConversionMetrics | null>(null);
+  const [vendorsByOrders, setVendorsByOrders] = useState<VendorByOrders[] | null>(null);
+  const [liveSalesAnalytics, setLiveSalesAnalytics] = useState<LiveSalesAnalyticsData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [liveSalesLoading, setLiveSalesLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [liveSalesError, setLiveSalesError] = useState<string | null>(null);
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
     start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA'),
@@ -53,17 +60,21 @@ export default function AnalyticsPage() {
       setIsLoading(true);
       setError(null);
       
-      const [stats, summary, timeSeries, auctions] = await Promise.all([
+      const [stats, summary, timeSeries, auctions, conversion, vendors] = await Promise.all([
         analyticsAPI.getPlatformStats(),
         analyticsAPI.getAnalyticsSummary(),
         analyticsAPI.getTimeSeries(dateRange.start, dateRange.end, period, new Date().getTimezoneOffset()),
         analyticsAPI.getAuctionAnalyticsSummary(dateRange.start, dateRange.end),
+        analyticsAPI.getConversionMetrics(),
+        analyticsAPI.getTopVendorsByOrders(),
       ]);
 
       setPlatformStats(stats);
       setAnalyticsSummary(summary);
       setTimeSeriesData(timeSeries);
       setAuctionAnalytics(auctions);
+      setConversionMetrics(conversion);
+      setVendorsByOrders(vendors);
     } catch (err: any) {
       console.error('Failed to fetch analytics:', err);
       setError(err.response?.data?.message || 'Failed to load analytics data');
@@ -71,6 +82,27 @@ export default function AnalyticsPage() {
       setIsLoading(false);
     }
   };
+
+  const fetchLiveSales = async () => {
+    try {
+      setLiveSalesLoading(true);
+      setLiveSalesError(null);
+      const data = await analyticsAPI.getLiveSalesAnalytics();
+      setLiveSalesAnalytics(data);
+    } catch (err: any) {
+      console.error('Failed to fetch live sales analytics:', err);
+      setLiveSalesError(err.response?.data?.message || 'Failed to load live sales analytics');
+    } finally {
+      setLiveSalesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (canViewAnalytics) {
+      fetchLiveSales();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canViewAnalytics]);
 
   if (!canViewAnalytics) {
     return (
@@ -85,7 +117,7 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <Tabs defaultValue="overview" className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -131,6 +163,18 @@ export default function AnalyticsPage() {
         </Button>
       </div>
 
+      {/* Tabs */}
+      <TabsList className="grid w-full max-w-md grid-cols-2">
+        <TabsTrigger value="overview" className="flex items-center gap-2">
+          <BarChart3 className="h-4 w-4" />
+          Overview
+        </TabsTrigger>
+        <TabsTrigger value="live-sales" className="flex items-center gap-2">
+          <Video className="h-4 w-4" />
+          Live Sales
+        </TabsTrigger>
+      </TabsList>
+
       {/* Error Message */}
       {error && (
         <div className="bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-md">
@@ -148,8 +192,9 @@ export default function AnalyticsPage() {
         </InfoAlert>
       )}
 
-      {/* Loading State */}
-      {isLoading ? (
+      <TabsContent value="overview" className="space-y-6">
+        {/* Loading State */}
+        {isLoading ? (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         </div>
@@ -276,6 +321,146 @@ export default function AnalyticsPage() {
                 )}
               </CardContent>
             </Card>
+
+              {/* Conversion Metrics (Time to First Purchase) */}
+              {conversionMetrics && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      Conversion Metrics
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                    </CardTitle>
+                    <CardDescription>Time from signup to first purchase analysis</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                      <div>
+                        <div className="text-sm text-muted-foreground">Conversion Rate</div>
+                        <div className="text-2xl font-bold">{conversionMetrics.conversionRate.toFixed(1)}%</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {conversionMetrics.purchasers} / {conversionMetrics.totalUsers} users
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Avg Time to Purchase</div>
+                        <div className="text-2xl font-bold">
+                          {conversionMetrics.averageTimeToFirstPurchaseHours.toFixed(1)}h
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          Median: {conversionMetrics.medianTimeToFirstPurchaseHours.toFixed(1)}h
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Within 24 Hours</div>
+                        <div className="text-2xl font-bold">
+                          {conversionMetrics.timeBucketsPercentage.within24Hours.toFixed(1)}%
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {conversionMetrics.timeBuckets.within24Hours} users
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Within 7 Days</div>
+                        <div className="text-2xl font-bold">
+                          {conversionMetrics.timeBucketsPercentage.within7Days.toFixed(1)}%
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {conversionMetrics.timeBuckets.within7Days} users
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Time Bucket Breakdown */}
+                    <div className="mt-6">
+                      <h3 className="text-sm font-semibold mb-3">Time to First Purchase Distribution</h3>
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-32 text-sm text-muted-foreground">Within 24h</div>
+                          <div className="flex-1 bg-secondary rounded-full h-2">
+                            <div 
+                              className="bg-green-500 h-2 rounded-full" 
+                              style={{ width: `${conversionMetrics.timeBucketsPercentage.within24Hours}%` }}
+                            />
+                          </div>
+                          <div className="w-16 text-sm text-right">
+                            {conversionMetrics.timeBucketsPercentage.within24Hours.toFixed(1)}%
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="w-32 text-sm text-muted-foreground">Within 7 days</div>
+                          <div className="flex-1 bg-secondary rounded-full h-2">
+                            <div 
+                              className="bg-blue-500 h-2 rounded-full" 
+                              style={{ width: `${conversionMetrics.timeBucketsPercentage.within7Days}%` }}
+                            />
+                          </div>
+                          <div className="w-16 text-sm text-right">
+                            {conversionMetrics.timeBucketsPercentage.within7Days.toFixed(1)}%
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="w-32 text-sm text-muted-foreground">Within 30 days</div>
+                          <div className="flex-1 bg-secondary rounded-full h-2">
+                            <div 
+                              className="bg-yellow-500 h-2 rounded-full" 
+                              style={{ width: `${conversionMetrics.timeBucketsPercentage.within30Days}%` }}
+                            />
+                          </div>
+                          <div className="w-16 text-sm text-right">
+                            {conversionMetrics.timeBucketsPercentage.within30Days.toFixed(1)}%
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="w-32 text-sm text-muted-foreground">Over 30 days</div>
+                          <div className="flex-1 bg-secondary rounded-full h-2">
+                            <div 
+                              className="bg-orange-500 h-2 rounded-full" 
+                              style={{ width: `${conversionMetrics.timeBucketsPercentage.over30Days}%` }}
+                            />
+                          </div>
+                          <div className="w-16 text-sm text-right">
+                            {conversionMetrics.timeBucketsPercentage.over30Days.toFixed(1)}%
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Top Vendors by Orders (Order-Count-Based Ranking) */}
+              {vendorsByOrders && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      Top Vendors by Orders
+                      <Award className="h-4 w-4 text-muted-foreground" />
+                    </CardTitle>
+                    <CardDescription>Vendors ranked by completed order count (not revenue)</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {vendorsByOrders.slice(0, 10).map((vendor, index) => (
+                        <div key={vendor.vendorId} className="flex items-center justify-between p-3 border rounded-lg">
+                          <div className="flex items-center gap-3">
+                            <div className="h-8 w-8 rounded-full bg-blue-500/10 flex items-center justify-center text-sm font-bold text-blue-600">
+                              {index + 1}
+                            </div>
+                            <div>
+                              <p className="font-medium">{vendor.vendorName}</p>
+                              <p className="text-sm text-muted-foreground">{vendor.completedOrders} completed orders</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-bold">{formatCurrency(vendor.totalRevenue)}</div>
+                            <p className="text-xs text-muted-foreground">Avg: {formatCurrency(vendor.averageOrderValue)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Auction Analytics Summary */}
               {auctionAnalytics && (
@@ -460,7 +645,16 @@ export default function AnalyticsPage() {
           )}
         </>
       )}
-    </div>
+      </TabsContent>
+
+      <TabsContent value="live-sales" className="space-y-6">
+        <LiveSalesAnalytics
+          data={liveSalesAnalytics}
+          loading={liveSalesLoading}
+          error={liveSalesError}
+        />
+      </TabsContent>
+    </Tabs>
   );
 }
 

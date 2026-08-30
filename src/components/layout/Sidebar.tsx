@@ -29,6 +29,8 @@ import {
   Scale,
   Handshake,
   Settings,
+  Gift,
+  Smartphone,
 } from 'lucide-react';
 
 interface NavItem {
@@ -97,6 +99,12 @@ const navItems: NavItem[] = [
     permission: 'view_revenue',
   },
   {
+    title: 'Gift Cards',
+    href: '/dashboard/gift-cards',
+    icon: Gift,
+    permission: 'view_revenue',
+  },
+  {
     title: 'Analytics',
     href: '/dashboard/analytics',
     icon: BarChart3,
@@ -132,6 +140,12 @@ const navItems: NavItem[] = [
     title: 'Website Management',
     href: '/dashboard/website-management',
     icon: Settings,
+    permission: 'manage_departments',
+  },
+  {
+    title: 'App Management',
+    href: '/dashboard/app-management',
+    icon: Smartphone,
     permission: 'manage_departments',
   },
   {

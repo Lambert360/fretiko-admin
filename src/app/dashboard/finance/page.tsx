@@ -16,11 +16,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { financeAPI, type RevenueStats, type EscrowHealth, type Payout, type Deposit, type TotalPlatformFunds, type UserBalance, type PlatformWallet, type BankAccount, type CreateBankAccountDto, type UpdateBankAccountDto, type WithdrawRequestDto, type PlatformWithdrawal, type GiftStats, type UserGiftHolding, type VirtualGift, type CreateGiftDto, type UpdateGiftDto, type RegionalRevenueResponse, type ProviderPerformanceResponse, type TransactionPatternsResponse, type EnhancedRevenueSummary, type Bank, type AccountPreview } from '@/lib/api/finance';
+import { financeAPI, type RevenueStats, type EscrowHealth, type Payout, type Deposit, type TotalPlatformFunds, type UserBalance, type PlatformWallet, type BankAccount, type CreateBankAccountDto, type UpdateBankAccountDto, type WithdrawRequestDto, type PlatformWithdrawal, type GiftStats, type UserGiftHolding, type VirtualGift, type CreateGiftDto, type UpdateGiftDto, type Sound, type RegionalRevenueResponse, type ProviderPerformanceResponse, type TransactionPatternsResponse, type EnhancedRevenueSummary, type Bank, type AccountPreview } from '@/lib/api/finance';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { DollarSign, TrendingUp, Clock, AlertTriangle, Wallet, CreditCard, BarChart3, Calendar, Loader2, Eye, MoreVertical, Search, ArrowDownCircle, Building2, Plus, Edit, Trash2, ArrowUpCircle, Users, MapPin, CheckCircle } from 'lucide-react';
+import { DollarSign, TrendingUp, Clock, AlertTriangle, Wallet, CreditCard, BarChart3, Calendar, Loader2, Eye, MoreVertical, Search, ArrowDownCircle, Building2, Plus, Edit, Trash2, ArrowUpCircle, Users, MapPin, CheckCircle, Upload, Volume2 } from 'lucide-react';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/loading';
 import { formatDateTime, formatCurrency } from '@/lib/utils/formatting';
 import { Input } from '@/components/ui/input';
@@ -142,6 +142,10 @@ const FinancePage = () => {
 
   // Gift management states
   const [allGifts, setAllGifts] = useState<VirtualGift[]>([]);
+  const [allSounds, setAllSounds] = useState<Sound[]>([]);
+  const [soundsLoading, setSoundsLoading] = useState(false);
+  const [uploadingAsset, setUploadingAsset] = useState<'lottie' | 'sound' | null>(null);
+  const [effectUploading, setEffectUploading] = useState<'single' | number | null>(null);
   const [giftManagementDialog, setGiftManagementDialog] = useState<{ open: boolean; gift: VirtualGift | null; mode: 'create' | 'edit' }>({ open: false, gift: null, mode: 'create' });
   const [deleteGiftDialog, setDeleteGiftDialog] = useState<{ open: boolean; gift: VirtualGift | null }>({ open: false, gift: null });
   const [giftForm, setGiftForm] = useState<CreateGiftDto>({
@@ -150,6 +154,10 @@ const FinancePage = () => {
     credit_value: 0,
     sort_order: 0,
     is_active: true,
+    display_lottie_url: '',
+    lottie_config: '',
+    sound_id: '',
+    animation_type: 'lottie_single',
   });
 
   // Enhanced Analytics States
@@ -183,6 +191,7 @@ const FinancePage = () => {
         fetchGiftWalletStats();
         fetchUserGiftHoldings();
         fetchAllGifts();
+        fetchSounds();
       } else if (activeTab === 'regional-revenue') {
         fetchRegionalRevenue();
       } else if (activeTab === 'provider-performance') {
@@ -752,16 +761,229 @@ const FinancePage = () => {
     }
   };
 
+  const fetchSounds = async () => {
+    try {
+      setSoundsLoading(true);
+      const sounds = await financeAPI.getSounds();
+      setAllSounds(sounds);
+    } catch (err: any) {
+      console.error('Failed to fetch sounds:', err);
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to load sounds',
+        variant: 'destructive',
+      });
+    } finally {
+      setSoundsLoading(false);
+    }
+  };
+
+  const handleUploadLottie = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setUploadingAsset('lottie');
+      const { url } = await financeAPI.uploadGiftAsset(file, 'lottie');
+      setGiftForm((prev) => ({ ...prev, display_lottie_url: url }));
+      toast({ title: 'Success', description: 'Lottie uploaded successfully' });
+    } catch (err: any) {
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to upload lottie',
+        variant: 'destructive',
+      });
+    } finally {
+      setUploadingAsset(null);
+    }
+  };
+
+  const getLottieConfigObject = (): { lottieUrl?: string; steps?: { lottieUrl: string; delayMs: number }[] } | null => {
+    if (!giftForm.lottie_config) return null;
+    try {
+      return JSON.parse(giftForm.lottie_config as any);
+    } catch {
+      return null;
+    }
+  };
+
+  const setLottieConfigObject = (obj: { lottieUrl?: string; steps?: { lottieUrl: string; delayMs: number }[] } | null) => {
+    if (!obj || (!obj.lottieUrl && (!obj.steps || obj.steps.length === 0))) {
+      setGiftForm((prev) => ({ ...prev, lottie_config: '' as any }));
+      return;
+    }
+    const isSingle = giftForm.animation_type === 'lottie_single';
+    if (isSingle && obj.steps && obj.steps.length === 1) {
+      setGiftForm((prev) => ({ ...prev, lottie_config: JSON.stringify({ lottieUrl: obj.steps[0].lottieUrl }, null, 2) as any }));
+    } else if (obj.lottieUrl && (!obj.steps || obj.steps.length === 0)) {
+      setGiftForm((prev) => ({ ...prev, lottie_config: JSON.stringify({ lottieUrl: obj.lottieUrl }, null, 2) as any }));
+    } else {
+      setGiftForm((prev) => ({ ...prev, lottie_config: JSON.stringify({ steps: obj.steps }, null, 2) as any }));
+    }
+  };
+
+  const getEffectSteps = () => {
+    const obj = getLottieConfigObject();
+    if (obj?.lottieUrl) return [{ lottieUrl: obj.lottieUrl, delayMs: 0 }];
+    if (obj?.steps) return obj.steps;
+    return [];
+  };
+
+  const handleUploadEffectSingle = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setEffectUploading('single');
+      const { url } = await financeAPI.uploadGiftAsset(file, 'lottie');
+      setLottieConfigObject({ lottieUrl: url });
+      toast({ title: 'Success', description: 'Effect lottie uploaded' });
+    } catch (err: any) {
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to upload lottie',
+        variant: 'destructive',
+      });
+    } finally {
+      setEffectUploading(null);
+      e.target.value = '';
+    }
+  };
+
+  const handleUploadEffectStep = (index: number) => async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setEffectUploading(index);
+      const { url } = await financeAPI.uploadGiftAsset(file, 'lottie');
+      const steps = getEffectSteps().length ? getEffectSteps() : [];
+      steps[index] = { ...steps[index], lottieUrl: url };
+      setLottieConfigObject({ steps });
+      toast({ title: 'Success', description: `Step ${index + 1} lottie uploaded` });
+    } catch (err: any) {
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to upload lottie',
+        variant: 'destructive',
+      });
+    } finally {
+      setEffectUploading(null);
+      e.target.value = '';
+    }
+  };
+
+  const updateStep = (index: number, field: 'lottieUrl' | 'delayMs', value: string) => {
+    const steps = [...getEffectSteps()];
+    if (!steps[index]) steps[index] = { lottieUrl: '', delayMs: 0 };
+    steps[index] = { ...steps[index], [field]: field === 'delayMs' ? parseInt(value) || 0 : value };
+    setLottieConfigObject({ steps });
+  };
+
+  const addStep = () => {
+    const steps = [...getEffectSteps()];
+    const defaultDelay = giftForm.animation_type === 'lottie_overlap' ? 0 : 0;
+    steps.push({ lottieUrl: '', delayMs: defaultDelay });
+    setLottieConfigObject({ steps });
+  };
+
+  const removeStep = (index: number) => {
+    const steps = getEffectSteps().filter((_, i) => i !== index);
+    setLottieConfigObject({ steps });
+  };
+
+  const handleUploadLottieConfigJson = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const text = ev.target?.result as string;
+        JSON.parse(text);
+        setGiftForm((prev) => ({ ...prev, lottie_config: text as any }));
+        toast({ title: 'Success', description: 'Lottie config JSON loaded' });
+      } catch {
+        toast({ title: 'Error', description: 'Invalid JSON file', variant: 'destructive' });
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleDownloadLottieConfig = () => {
+    const text = (giftForm.lottie_config as any) || '{}';
+    const blob = new Blob([text], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gift-lottie-config-${giftForm.name || 'untitled'}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleUploadSound = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setUploadingAsset('sound');
+      const { url } = await financeAPI.uploadGiftAsset(file, 'sound');
+      await financeAPI.createSound({
+        name: file.name.replace(/\.[^/.]+$/, ''),
+        sound_url: url,
+      });
+      toast({ title: 'Success', description: 'Sound uploaded and saved' });
+      await fetchSounds();
+    } catch (err: any) {
+      toast({
+        title: 'Error',
+        description: err.response?.data?.message || 'Failed to upload sound',
+        variant: 'destructive',
+      });
+    } finally {
+      setUploadingAsset(null);
+    }
+  };
+
+  const buildGiftPayload = (): CreateGiftDto | null => {
+    let lottieConfig: any = undefined;
+    if (giftForm.lottie_config && (giftForm.lottie_config as any).trim?.()) {
+      try {
+        lottieConfig = JSON.parse(giftForm.lottie_config as any);
+      } catch {
+        toast({
+          title: 'Error',
+          description: 'Lottie config is not valid JSON',
+          variant: 'destructive',
+        });
+        return null;
+      }
+    }
+    const payload: any = { ...giftForm, lottie_config: lottieConfig };
+    if (!payload.sound_id) delete payload.sound_id;
+    if (!payload.display_lottie_url) delete payload.display_lottie_url;
+    if (lottieConfig === undefined) delete payload.lottie_config;
+    return payload as CreateGiftDto;
+  };
+
   const handleCreateGift = async () => {
+    const payload = buildGiftPayload();
+    if (!payload) return;
     try {
       setIsActionLoading('create-gift');
-      await financeAPI.createGift(giftForm);
+      await financeAPI.createGift(payload);
       toast({
         title: 'Success',
         description: 'Gift created successfully',
       });
       setGiftManagementDialog({ open: false, gift: null, mode: 'create' });
-      setGiftForm({ name: '', emoji: '', credit_value: 0, sort_order: 0, is_active: true });
+      setGiftForm({
+        name: '',
+        emoji: '',
+        credit_value: 0,
+        sort_order: 0,
+        is_active: true,
+        display_lottie_url: '',
+        lottie_config: '',
+        sound_id: '',
+        animation_type: 'lottie_single',
+      });
       await fetchAllGifts();
     } catch (err: any) {
       toast({
@@ -776,15 +998,27 @@ const FinancePage = () => {
 
   const handleUpdateGift = async () => {
     if (!giftManagementDialog.gift) return;
+    const payload = buildGiftPayload();
+    if (!payload) return;
     try {
       setIsActionLoading(`update-gift-${giftManagementDialog.gift.id}`);
-      await financeAPI.updateGift(giftManagementDialog.gift.id, giftForm);
+      await financeAPI.updateGift(giftManagementDialog.gift.id, payload as any);
       toast({
         title: 'Success',
         description: 'Gift updated successfully',
       });
       setGiftManagementDialog({ open: false, gift: null, mode: 'create' });
-      setGiftForm({ name: '', emoji: '', credit_value: 0, sort_order: 0, is_active: true });
+      setGiftForm({
+        name: '',
+        emoji: '',
+        credit_value: 0,
+        sort_order: 0,
+        is_active: true,
+        display_lottie_url: '',
+        lottie_config: '',
+        sound_id: '',
+        animation_type: 'lottie_single',
+      });
       await fetchAllGifts();
     } catch (err: any) {
       toast({
@@ -820,7 +1054,17 @@ const FinancePage = () => {
   };
 
   const openCreateGiftDialog = () => {
-    setGiftForm({ name: '', emoji: '', credit_value: 0, sort_order: 0, is_active: true });
+    setGiftForm({
+      name: '',
+      emoji: '',
+      credit_value: 0,
+      sort_order: 0,
+      is_active: true,
+      display_lottie_url: '',
+      lottie_config: '',
+      sound_id: '',
+      animation_type: 'lottie_single',
+    });
     setGiftManagementDialog({ open: true, gift: null, mode: 'create' });
   };
 
@@ -831,6 +1075,10 @@ const FinancePage = () => {
       credit_value: gift.credit_value,
       sort_order: gift.sort_order,
       is_active: gift.is_active,
+      display_lottie_url: gift.display_lottie_url || '',
+      lottie_config: gift.lottie_config ? JSON.stringify(gift.lottie_config, null, 2) : '',
+      sound_id: gift.sound_id || '',
+      animation_type: gift.animation_type || 'lottie_single',
     });
     setGiftManagementDialog({ open: true, gift, mode: 'edit' });
   };
@@ -3370,7 +3618,7 @@ const FinancePage = () => {
                             )}
                           </div>
                           <p className="text-sm text-muted-foreground">
-                            Credit Value: {formatAmount(gift.credit_value)} • Sort Order: {gift.sort_order}
+                            Credit Value: {formatAmount(gift.credit_value)} • Sort Order: {gift.sort_order} • {gift.animation_type || 'single'}
                           </p>
                         </div>
                       </div>
@@ -3398,6 +3646,62 @@ const FinancePage = () => {
                             </>
                           )}
                         </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Sound Library */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Sound Library</CardTitle>
+                  <CardDescription>Reusable sound effects for gifts</CardDescription>
+                </div>
+                <input
+                  type="file"
+                  accept="audio/*"
+                  className="hidden"
+                  id="sound-upload"
+                  onChange={handleUploadSound}
+                  disabled={uploadingAsset === 'sound'}
+                />
+                <Button
+                  onClick={() => document.getElementById('sound-upload')?.click()}
+                  disabled={uploadingAsset === 'sound'}
+                >
+                  {uploadingAsset === 'sound' ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Plus className="h-4 w-4 mr-2" />
+                  )}
+                  Upload Sound
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {soundsLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+              ) : allSounds.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No sounds yet. Upload a sound to get started.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {allSounds.map((sound) => (
+                    <div key={sound.id} className="flex items-center justify-between p-3 border rounded">
+                      <div className="flex items-center gap-3">
+                        <Volume2 className="h-5 w-5 text-muted-foreground" />
+                        <div>
+                          <p className="font-medium">{sound.name}</p>
+                          <audio src={sound.sound_url} controls className="h-8 w-48" />
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -3469,6 +3773,230 @@ const FinancePage = () => {
                 className="rounded"
               />
               <Label htmlFor="gift-active">Active (visible in marketplace)</Label>
+            </div>
+
+            <div>
+              <Label htmlFor="gift-animation-type">Animation Type</Label>
+              <select
+                id="gift-animation-type"
+                value={giftForm.animation_type}
+                onChange={(e) => setGiftForm({ ...giftForm, animation_type: e.target.value as any })}
+                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="lottie_single">Single Lottie</option>
+                <option value="lottie_combo">Combo Lottie</option>
+                <option value="lottie_overlap">Overlapping Lottie</option>
+              </select>
+            </div>
+
+            <div>
+              <Label htmlFor="gift-display-lottie">Display Lottie (selector preview)</Label>
+              <div className="flex gap-2 items-center">
+                <Input
+                  id="gift-display-lottie"
+                  value={giftForm.display_lottie_url || ''}
+                  onChange={(e) => setGiftForm({ ...giftForm, display_lottie_url: e.target.value })}
+                  placeholder="https://... or upload"
+                />
+                <input
+                  type="file"
+                  accept=".lottie,.json"
+                  className="hidden"
+                  id="display-lottie-upload"
+                  onChange={handleUploadLottie}
+                  disabled={uploadingAsset === 'lottie'}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => document.getElementById('display-lottie-upload')?.click()}
+                  disabled={uploadingAsset === 'lottie'}
+                >
+                  {uploadingAsset === 'lottie' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Upload className="h-4 w-4 mr-1" />
+                  )}
+                  Upload
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-3 border rounded-md p-4 border-input bg-background">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="gift-lottie-config">Lottie Effect Config</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="file"
+                    accept=".json"
+                    className="hidden"
+                    id="lottie-config-json-upload"
+                    onChange={handleUploadLottieConfigJson}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => document.getElementById('lottie-config-json-upload')?.click()}
+                  >
+                    <Upload className="h-4 w-4 mr-1" />
+                    Import JSON
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDownloadLottieConfig}
+                    disabled={!giftForm.lottie_config}
+                  >
+                    Export JSON
+                  </Button>
+                </div>
+              </div>
+
+              {giftForm.animation_type === 'lottie_single' ? (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Upload one Lottie file to use as the full-screen effect. Leave empty to reuse the display Lottie.
+                  </p>
+                  <div className="flex gap-2 items-center">
+                    <Input
+                      value={getEffectSteps()[0]?.lottieUrl || ''}
+                      onChange={(e) => updateStep(0, 'lottieUrl', e.target.value)}
+                      placeholder="https://... or upload"
+                    />
+                    <input
+                      type="file"
+                      accept=".lottie,.json"
+                      className="hidden"
+                      id="lottie-effect-single-upload"
+                      onChange={handleUploadEffectSingle}
+                      disabled={effectUploading === 'single'}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => document.getElementById('lottie-effect-single-upload')?.click()}
+                      disabled={effectUploading === 'single'}
+                    >
+                      {effectUploading === 'single' ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Upload className="h-4 w-4 mr-1" />
+                      )}
+                      Upload
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    {giftForm.animation_type === 'lottie_combo'
+                      ? 'Add Lottie steps played one after another. Each step starts when the previous one finishes.'
+                      : 'Add Lottie steps that play together/overlapping. Use Delay to stagger the start times.'}
+                  </p>
+                  {getEffectSteps().length === 0 && (
+                    <p className="text-sm text-muted-foreground">No effect steps yet.</p>
+                  )}
+                  {getEffectSteps().map((step, index) => (
+                    <div key={index} className="flex gap-2 items-start border rounded-md p-2 bg-background">
+                      <div className="flex-1 space-y-2">
+                        <div className="flex gap-2 items-center">
+                          <span className="text-xs font-medium min-w-[50px]">Step {index + 1}</span>
+                          <Input
+                            value={step.lottieUrl || ''}
+                            onChange={(e) => updateStep(index, 'lottieUrl', e.target.value)}
+                            placeholder="https://... or upload"
+                          />
+                          <input
+                            type="file"
+                            accept=".lottie,.json"
+                            className="hidden"
+                            id={`lottie-effect-step-upload-${index}`}
+                            onChange={handleUploadEffectStep(index)}
+                            disabled={effectUploading === index}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => document.getElementById(`lottie-effect-step-upload-${index}`)?.click()}
+                            disabled={effectUploading === index}
+                          >
+                            {effectUploading === index ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Upload className="h-4 w-4 mr-1" />
+                            )}
+                            Upload
+                          </Button>
+                        </div>
+                        {giftForm.animation_type === 'lottie_overlap' && (
+                          <div className="flex gap-2 items-center pl-[50px]">
+                            <Label className="text-xs text-muted-foreground">Delay (ms)</Label>
+                            <Input
+                              type="number"
+                              value={step.delayMs || 0}
+                              onChange={(e) => updateStep(index, 'delayMs', e.target.value)}
+                              className="w-24"
+                            />
+                          </div>
+                        )}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeStep(index)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={addStep}
+                    className="w-full"
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add Step
+                  </Button>
+                </div>
+              )}
+
+              <div>
+                <Label htmlFor="gift-lottie-config" className="text-xs text-muted-foreground">
+                  Raw JSON (copy/paste or edit directly)
+                </Label>
+                <textarea
+                  id="gift-lottie-config"
+                  value={(giftForm.lottie_config as any) || ''}
+                  onChange={(e) => setGiftForm({ ...giftForm, lottie_config: e.target.value })}
+                  placeholder={'{ "lottieUrl": "..." } or { "steps": [{ "lottieUrl": "...", "delayMs": 0 }] }'}
+                  className="w-full min-h-[100px] rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Leave empty to use the display Lottie as the effect.
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="gift-sound">Sound Effect</Label>
+              <select
+                id="gift-sound"
+                value={giftForm.sound_id || ''}
+                onChange={(e) => setGiftForm({ ...giftForm, sound_id: e.target.value || undefined })}
+                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">No sound</option>
+                {allSounds.map((sound) => (
+                  <option key={sound.id} value={sound.id}>
+                    {sound.name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
           <DialogFooter>

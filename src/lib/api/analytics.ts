@@ -81,6 +81,71 @@ export interface AuctionAnalyticsSummary {
   }>;
 }
 
+export interface ConversionMetrics {
+  averageTimeToFirstPurchaseHours: number;
+  medianTimeToFirstPurchaseHours: number;
+  conversionRate: number;
+  totalUsers: number;
+  purchasers: number;
+  nonPurchasers: number;
+  timeBuckets: {
+    within24Hours: number;
+    within7Days: number;
+    within30Days: number;
+    over30Days: number;
+  };
+  timeBucketsPercentage: {
+    within24Hours: number;
+    within7Days: number;
+    within30Days: number;
+    over30Days: number;
+  };
+}
+
+export interface LiveStreamAnalyticsEntry {
+  streamId: string;
+  vendorId: string;
+  vendorName: string;
+  vendorAvatar?: string;
+  title: string;
+  currentViewers: number;
+  totalViewers: number;
+  totalSales: number;
+  totalGifts: number;
+  totalGiftValue: number;
+  startedAt?: string;
+}
+
+export interface LiveSalesGamificationConfig {
+  watchRewardsEnabled: boolean;
+  watchTimeMinutes: number;
+  fretiPerReward: number;
+  dailyCapPerUser: number;
+  perStreamCapPerUser: number;
+  leaderboardEnabled: boolean;
+  specialEventEnabled: boolean;
+  specialEventName?: string;
+  defaultOrderWeight: number;
+  defaultViewerWeight: number;
+  defaultRevenueWeight: number;
+}
+
+export interface LiveSalesAnalytics {
+  currentlyLiveStreams: number;
+  currentlyLiveVendors: number;
+  totalActiveViewers: number;
+  streams: LiveStreamAnalyticsEntry[];
+  gamification: LiveSalesGamificationConfig | null;
+}
+
+export interface VendorByOrders {
+  vendorId: string;
+  vendorName: string;
+  completedOrders: number;
+  totalRevenue: number;
+  averageOrderValue: number;
+}
+
 export const analyticsAPI = {
   /**
    * Get platform statistics
@@ -142,5 +207,29 @@ export const analyticsAPI = {
 
     const query = params.toString() ? `?${params.toString()}` : '';
     return apiClient.get<AuctionAnalyticsSummary>(`/admin/analytics/auctions/summary${query}`);
+  },
+
+  /**
+   * Get conversion metrics (time to first purchase)
+   * GET /admin/analytics/conversion-metrics
+   */
+  getConversionMetrics: async (): Promise<ConversionMetrics> => {
+    return apiClient.get<ConversionMetrics>('/admin/analytics/conversion-metrics');
+  },
+
+  /**
+   * Get top vendors by completed orders (order-count-based ranking)
+   * GET /admin/analytics/vendors-by-orders
+   */
+  getTopVendorsByOrders: async (): Promise<VendorByOrders[]> => {
+    return apiClient.get<VendorByOrders[]>('/admin/analytics/vendors-by-orders');
+  },
+
+  /**
+   * Get live sales / gamification analytics
+   * GET /admin/analytics/live-sales
+   */
+  getLiveSalesAnalytics: async (): Promise<LiveSalesAnalytics> => {
+    return apiClient.get<LiveSalesAnalytics>('/admin/analytics/live-sales');
   },
 };

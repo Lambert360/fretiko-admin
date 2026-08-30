@@ -389,6 +389,11 @@ export interface VirtualGift {
   credit_value: number;
   is_active: boolean;
   sort_order: number;
+  display_lottie_url?: string;
+  lottie_config?: any;
+  sound_id?: string;
+  sound_url?: string;
+  animation_type?: 'lottie_single' | 'lottie_combo' | 'lottie_overlap';
   created_at: string;
   updated_at: string;
 }
@@ -399,12 +404,44 @@ export interface CreateGiftDto {
   credit_value: number;
   sort_order?: number;
   is_active?: boolean;
+  display_lottie_url?: string;
+  lottie_config?: any;
+  sound_id?: string;
+  animation_type?: 'lottie_single' | 'lottie_combo' | 'lottie_overlap';
 }
 
 export interface UpdateGiftDto {
   name?: string;
   emoji?: string;
   credit_value?: number;
+  sort_order?: number;
+  is_active?: boolean;
+  display_lottie_url?: string;
+  lottie_config?: any;
+  sound_id?: string;
+  animation_type?: 'lottie_single' | 'lottie_combo' | 'lottie_overlap';
+}
+
+export interface Sound {
+  id: string;
+  name: string;
+  sound_url: string;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateSoundDto {
+  name: string;
+  sound_url: string;
+  sort_order?: number;
+  is_active?: boolean;
+}
+
+export interface UpdateSoundDto {
+  name?: string;
+  sound_url?: string;
   sort_order?: number;
   is_active?: boolean;
 }
@@ -694,6 +731,49 @@ export const financeAPI = {
    */
   deleteGift: async (id: string): Promise<{ success: boolean; message: string }> => {
     return apiClient.delete<{ success: boolean; message: string }>(`/gifts/admin/${id}`);
+  },
+
+  /**
+   * Upload a gift asset (lottie or sound)
+   * POST /gifts/admin/upload
+   */
+  uploadGiftAsset: async (file: File, type: 'lottie' | 'sound'): Promise<{ url: string; type: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('type', type);
+    return apiClient.post<{ url: string; type: string }>('/gifts/admin/upload', formData);
+  },
+
+  /**
+   * Get all sounds
+   * GET /gifts/admin/sounds
+   */
+  getSounds: async (): Promise<Sound[]> => {
+    return apiClient.get<Sound[]>('/gifts/admin/sounds');
+  },
+
+  /**
+   * Create a sound
+   * POST /gifts/admin/sounds
+   */
+  createSound: async (dto: CreateSoundDto): Promise<Sound> => {
+    return apiClient.post<Sound>('/gifts/admin/sounds', dto);
+  },
+
+  /**
+   * Update a sound
+   * PUT /gifts/admin/sounds/:id
+   */
+  updateSound: async (id: string, dto: UpdateSoundDto): Promise<Sound> => {
+    return apiClient.put<Sound>(`/gifts/admin/sounds/${id}`, dto);
+  },
+
+  /**
+   * Delete a sound
+   * DELETE /gifts/admin/sounds/:id
+   */
+  deleteSound: async (id: string): Promise<{ success: boolean; message: string }> => {
+    return apiClient.delete<{ success: boolean; message: string }>(`/gifts/admin/sounds/${id}`);
   },
 };
 
