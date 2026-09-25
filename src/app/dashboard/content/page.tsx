@@ -148,6 +148,7 @@ export default function ContentModerationPage() {
   const canViewStreams = hasPermission('view_live_streams');
   const canEndStreams = hasPermission('end_live_streams');
   const canViewPosts = canViewProducts;
+  const canSuspendUsers = hasPermission('suspend_users');
   const canModeratePosts = canRemoveProducts;
 
   useEffect(() => {
@@ -250,6 +251,8 @@ export default function ContentModerationPage() {
       setError(null);
       if (approveDialog.type === 'product') {
         await contentAPI.approveProduct(approveDialog.id, reason);
+      } else if (approveDialog.type === 'adult-flag' || approveDialog.type === 'adult-unflag') {
+        await contentAPI.setAdultContentFlag(approveDialog.id, approveDialog.type === 'adult-flag', reason || undefined);
       } else if (approveDialog.type === 'service') {
         await contentAPI.approveService(approveDialog.id, reason);
       } else if (approveDialog.type === 'auction') {
@@ -268,6 +271,8 @@ export default function ContentModerationPage() {
         'post-restore': 'Post restored successfully',
         'post-pin': 'Post pinned successfully',
         'post-unpin': 'Post unpinned successfully',
+        'adult-flag': 'Vendor marked as adult content (18+)',
+        'adult-unflag': 'Adult content flag removed from vendor',
       };
       setApproveDialog({ open: false, type: '', id: '' });
       setReason('');
@@ -647,6 +652,9 @@ export default function ContentModerationPage() {
               }}
               canApprove={canApproveProducts}
               canRemove={canRemoveProducts}
+              onToggleAdultFlag={canSuspendUsers
+                ? (userId, isAdult) => setApproveDialog({ open: true, type: isAdult ? 'adult-flag' : 'adult-unflag', id: userId })
+                : undefined}
             />
           )}
 
@@ -684,6 +692,9 @@ export default function ContentModerationPage() {
               }}
               canApprove={canApproveServices}
               canRemove={canRemoveServices}
+              onToggleAdultFlag={canSuspendUsers
+                ? (userId, isAdult) => setApproveDialog({ open: true, type: isAdult ? 'adult-flag' : 'adult-unflag', id: userId })
+                : undefined}
             />
           )}
 
@@ -719,6 +730,9 @@ export default function ContentModerationPage() {
                   url,
                 });
               }}
+              onToggleAdultFlag={canSuspendUsers
+                ? (userId, isAdult) => setApproveDialog({ open: true, type: isAdult ? 'adult-flag' : 'adult-unflag', id: userId })
+                : undefined}
               canEnd={canEndStreams}
             />
           )}
@@ -742,6 +756,9 @@ export default function ContentModerationPage() {
               }}
               canApprove={canApproveProducts}
               canRemove={canRemoveProducts}
+              onToggleAdultFlag={canSuspendUsers
+                ? (userId, isAdult) => setApproveDialog({ open: true, type: isAdult ? 'adult-flag' : 'adult-unflag', id: userId })
+                : undefined}
             />
           )}
 
@@ -958,12 +975,16 @@ export default function ContentModerationPage() {
               {approveDialog.type === 'post-restore' ? 'Restore Post'
                 : approveDialog.type === 'post-pin' ? 'Pin Post'
                 : approveDialog.type === 'post-unpin' ? 'Unpin Post'
+                : approveDialog.type === 'adult-flag' ? 'Mark Vendor as Adult Content'
+                : approveDialog.type === 'adult-unflag' ? 'Remove Adult Content Flag'
                 : `Approve ${approveDialog.type === 'product' ? 'Product' : approveDialog.type === 'service' ? 'Service' : 'Auction'}`}
             </DialogTitle>
             <DialogDescription>
               {approveDialog.type === 'post-restore' ? 'This will make the post visible to users again.'
                 : approveDialog.type === 'post-pin' ? 'This will pin the post to the top of the feed.'
                 : approveDialog.type === 'post-unpin' ? 'This will remove the pin from the post.'
+                : approveDialog.type === 'adult-flag' ? 'This vendor\'s entire catalog will be restricted to verified 18+ users across products, services, auctions, and live streams.'
+                : approveDialog.type === 'adult-unflag' ? 'This vendor\'s catalog will be visible to all users again.'
                 : `Approve this ${approveDialog.type} to make it visible on the platform`}
             </DialogDescription>
           </DialogHeader>
@@ -2127,6 +2148,7 @@ function ProductsTab({
   onApprove,
   onReject,
   onViewMedia,
+  onToggleAdultFlag,
   canApprove,
   canRemove,
 }: {
@@ -2136,6 +2158,7 @@ function ProductsTab({
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
   onViewMedia: (url: string, type?: 'image' | 'video', allMedia?: string[], product?: Product) => void;
+  onToggleAdultFlag?: (userId: string, isAdult: boolean) => void;
   canApprove: boolean;
   canRemove: boolean;
 }) {
@@ -2162,6 +2185,7 @@ function ProductsTab({
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
           <option value="sold">Sold</option>
+          <option value="removed">Removed</option>
         </select>
       </div>
 
@@ -2176,8 +2200,18 @@ function ProductsTab({
                   <CardDescription className="mt-1">
                     {product.user?.preferences?.fullName || product.user?.full_name || product.user?.username || 'Unknown User'}
                   </CardDescription>
+                  {(product.user?.catalog_hidden || product.user?.is_adult_content) && (
+                    <div className="flex gap-1 mt-1">
+                      {product.user?.catalog_hidden && (
+                        <Badge variant="outline" className="text-xs">Unlisted</Badge>
+                      )}
+                      {product.user?.is_adult_content && (
+                        <Badge variant="outline" className="text-xs border-orange-500 text-orange-600">18+</Badge>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <Badge variant={product.status === 'active' ? 'default' : 'secondary'}>
+                <Badge variant={product.status === 'active' ? 'default' : product.status === 'removed' ? 'destructive' : 'secondary'}>
                   {product.status}
                 </Badge>
               </div>
@@ -2234,16 +2268,25 @@ function ProductsTab({
                 </div>
               </div>
               <div className="flex gap-2 pt-2">
-                {canApprove && product.status === 'draft' && (
+                {canApprove && (product.status === 'draft' || product.status === 'removed') && (
                   <Button size="sm" variant="outline" onClick={() => onApprove(product.id)}>
                     <CheckCircle className="h-4 w-4 mr-1" />
-                    Approve
+                    {product.status === 'removed' ? 'Restore' : 'Approve'}
                   </Button>
                 )}
                 {canRemove && (
                   <Button size="sm" variant="destructive" onClick={() => onReject(product.id)}>
                     <XCircle className="h-4 w-4 mr-1" />
                     Reject
+                  </Button>
+                )}
+                {product.user?.id && onToggleAdultFlag && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onToggleAdultFlag(product.user!.id, !product.user!.is_adult_content)}
+                  >
+                    {product.user.is_adult_content ? 'Unmark 18+' : 'Mark 18+'}
                   </Button>
                 )}
               </div>
@@ -2266,6 +2309,7 @@ function ServicesTab({
   onApprove,
   onReject,
   onViewMedia,
+  onToggleAdultFlag,
   canApprove,
   canRemove,
 }: {
@@ -2275,6 +2319,7 @@ function ServicesTab({
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
   onViewMedia: (url: string, type?: 'image' | 'video', allMedia?: string[], service?: Service) => void;
+  onToggleAdultFlag?: (userId: string, isAdult: boolean) => void;
   canApprove: boolean;
   canRemove: boolean;
 }) {
@@ -2301,6 +2346,7 @@ function ServicesTab({
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
           <option value="busy">Busy</option>
+          <option value="removed">Removed</option>
         </select>
       </div>
 
@@ -2315,8 +2361,18 @@ function ServicesTab({
                   <CardDescription className="mt-1">
                     {service.user?.preferences?.fullName || service.user?.full_name || service.user?.username || 'Unknown User'}
                   </CardDescription>
+                  {(service.user?.catalog_hidden || service.user?.is_adult_content) && (
+                    <div className="flex gap-1 mt-1">
+                      {service.user?.catalog_hidden && (
+                        <Badge variant="outline" className="text-xs">Unlisted</Badge>
+                      )}
+                      {service.user?.is_adult_content && (
+                        <Badge variant="outline" className="text-xs border-orange-500 text-orange-600">18+</Badge>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <Badge variant={service.status === 'active' ? 'default' : 'secondary'}>
+                <Badge variant={service.status === 'active' ? 'default' : service.status === 'removed' ? 'destructive' : 'secondary'}>
                   {service.status}
                 </Badge>
               </div>
@@ -2371,16 +2427,25 @@ function ServicesTab({
                 </div>
               </div>
               <div className="flex gap-2 pt-2">
-                {canApprove && service.status === 'draft' && (
+                {canApprove && (service.status === 'draft' || service.status === 'removed') && (
                   <Button size="sm" variant="outline" onClick={() => onApprove(service.id)}>
                     <CheckCircle className="h-4 w-4 mr-1" />
-                    Approve
+                    {service.status === 'removed' ? 'Restore' : 'Approve'}
                   </Button>
                 )}
                 {canRemove && (
                   <Button size="sm" variant="destructive" onClick={() => onReject(service.id)}>
                     <XCircle className="h-4 w-4 mr-1" />
                     Reject
+                  </Button>
+                )}
+                {service.user?.id && onToggleAdultFlag && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onToggleAdultFlag(service.user!.id, !service.user!.is_adult_content)}
+                  >
+                    {service.user.is_adult_content ? 'Unmark 18+' : 'Mark 18+'}
                   </Button>
                 )}
               </div>
@@ -2445,6 +2510,16 @@ function StoriesTab({
               )}
               <div className="p-4 space-y-2">
                 <p className="text-sm font-medium">{story.user?.preferences?.fullName || story.user?.full_name || story.user?.username}</p>
+                {(story.user?.catalog_hidden || story.user?.is_adult_content) && (
+                  <div className="flex gap-1">
+                    {story.user?.catalog_hidden && (
+                      <Badge variant="outline" className="text-xs">Unlisted</Badge>
+                    )}
+                    {story.user?.is_adult_content && (
+                      <Badge variant="outline" className="text-xs border-orange-500 text-orange-600">18+</Badge>
+                    )}
+                  </div>
+                )}
                 {story.caption && (
                   <p className="text-sm text-muted-foreground line-clamp-2">{story.caption}</p>
                 )}
@@ -2483,6 +2558,7 @@ function LiveStreamsTab({
   onFiltersChange,
   onEnd,
   onViewMedia,
+  onToggleAdultFlag,
   canEnd,
 }: {
   streams: LiveStream[];
@@ -2490,6 +2566,7 @@ function LiveStreamsTab({
   onFiltersChange: (filters: any) => void;
   onEnd: (id: string) => void;
   onViewMedia: (url: string) => void;
+  onToggleAdultFlag?: (userId: string, isAdult: boolean) => void;
   canEnd: boolean;
 }) {
   return (
@@ -2518,6 +2595,16 @@ function LiveStreamsTab({
                   <CardDescription className="mt-1">
                     {stream.vendor?.preferences?.fullName || stream.vendor?.full_name || stream.vendor?.username || 'Unknown Vendor'}
                   </CardDescription>
+                  {(stream.vendor?.catalog_hidden || stream.vendor?.is_adult_content) && (
+                    <div className="flex gap-1 mt-1">
+                      {stream.vendor?.catalog_hidden && (
+                        <Badge variant="outline" className="text-xs">Unlisted</Badge>
+                      )}
+                      {stream.vendor?.is_adult_content && (
+                        <Badge variant="outline" className="text-xs border-orange-500 text-orange-600">18+</Badge>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <Badge variant={stream.status === 'live' ? 'destructive' : 'secondary'}>
                   {stream.status}
@@ -2562,6 +2649,16 @@ function LiveStreamsTab({
                   End Stream
                 </Button>
               )}
+              {stream.vendor?.id && onToggleAdultFlag && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => onToggleAdultFlag(stream.vendor!.id, !stream.vendor!.is_adult_content)}
+                >
+                  {stream.vendor.is_adult_content ? 'Unmark 18+' : 'Mark 18+'}
+                </Button>
+              )}
             </CardContent>
           </Card>
         ))}
@@ -2581,6 +2678,7 @@ function AuctionsTab({
   onApprove,
   onReject,
   onViewMedia,
+  onToggleAdultFlag,
   canApprove,
   canRemove,
 }: {
@@ -2590,6 +2688,7 @@ function AuctionsTab({
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
   onViewMedia: (url: string, allImages?: string[]) => void;
+  onToggleAdultFlag?: (userId: string, isAdult: boolean) => void;
   canApprove: boolean;
   canRemove: boolean;
 }) {
@@ -2631,6 +2730,16 @@ function AuctionsTab({
                   <CardDescription className="mt-1">
                     {auction.seller?.preferences?.fullName || auction.seller?.full_name || auction.seller?.username || 'Unknown Seller'}
                   </CardDescription>
+                  {(auction.seller?.catalog_hidden || auction.seller?.is_adult_content) && (
+                    <div className="flex gap-1 mt-1">
+                      {auction.seller?.catalog_hidden && (
+                        <Badge variant="outline" className="text-xs">Unlisted</Badge>
+                      )}
+                      {auction.seller?.is_adult_content && (
+                        <Badge variant="outline" className="text-xs border-orange-500 text-orange-600">18+</Badge>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <Badge variant={auction.status === 'active' ? 'default' : auction.status === 'sold' ? 'default' : 'secondary'}>
                   {auction.status}
@@ -2698,6 +2807,15 @@ function AuctionsTab({
                   <Button size="sm" variant="destructive" onClick={() => onReject(auction.id)}>
                     <XCircle className="h-4 w-4 mr-1" />
                     Cancel
+                  </Button>
+                )}
+                {auction.seller?.id && onToggleAdultFlag && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onToggleAdultFlag(auction.seller!.id, !auction.seller!.is_adult_content)}
+                  >
+                    {auction.seller.is_adult_content ? 'Unmark 18+' : 'Mark 18+'}
                   </Button>
                 )}
               </div>

@@ -428,6 +428,9 @@ export interface Sound {
   sound_url: string;
   is_active: boolean;
   sort_order: number;
+  /** 'gift' = gift sound effects, 'live_stream' = host soundboard */
+  context?: 'gift' | 'live_stream';
+  owner_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -437,6 +440,7 @@ export interface CreateSoundDto {
   sound_url: string;
   sort_order?: number;
   is_active?: boolean;
+  context?: 'gift' | 'live_stream';
 }
 
 export interface UpdateSoundDto {
@@ -444,6 +448,7 @@ export interface UpdateSoundDto {
   sound_url?: string;
   sort_order?: number;
   is_active?: boolean;
+  context?: 'gift' | 'live_stream';
 }
 
 export const financeAPI = {
@@ -745,11 +750,12 @@ export const financeAPI = {
   },
 
   /**
-   * Get all sounds
-   * GET /gifts/admin/sounds
+   * Get all platform sounds
+   * GET /gifts/admin/sounds?context=gift|live_stream
    */
-  getSounds: async (): Promise<Sound[]> => {
-    return apiClient.get<Sound[]>('/gifts/admin/sounds');
+  getSounds: async (context?: 'gift' | 'live_stream'): Promise<Sound[]> => {
+    const query = context ? `?context=${context}` : '';
+    return apiClient.get<Sound[]>(`/gifts/admin/sounds${query}`);
   },
 
   /**

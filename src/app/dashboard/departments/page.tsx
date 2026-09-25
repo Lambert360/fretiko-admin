@@ -59,7 +59,7 @@ const ALL_PERMISSIONS = [
   // Analytics
   'view_platform_stats', 'export_data',
   // Communication
-  'send_memos', 'view_memos',
+  'send_memos', 'view_memos', 'send_broadcasts',
   // Reports
   'create_reports', 'view_reports',
 ];

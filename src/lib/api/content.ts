@@ -11,7 +11,7 @@ export interface Product {
   description: string;
   price: number;
   quantity: number;
-  status: 'draft' | 'active' | 'sold' | 'inactive';
+  status: 'draft' | 'active' | 'sold' | 'inactive' | 'removed';
   primary_image_url?: string;
   images?: string[];
   videos?: string[];
@@ -26,6 +26,8 @@ export interface Product {
     username?: string;
     full_name?: string;
     avatar_url?: string;
+    catalog_hidden?: boolean;
+    is_adult_content?: boolean;
     preferences?: {
       fullName?: string;
     };
@@ -38,7 +40,7 @@ export interface Service {
   description: string;
   base_price: number;
   duration?: string;
-  status: 'draft' | 'active' | 'busy' | 'inactive';
+  status: 'draft' | 'active' | 'busy' | 'inactive' | 'removed';
   primary_media_url?: string;
   images?: string[];
   videos?: string[];
@@ -53,6 +55,8 @@ export interface Service {
     username?: string;
     full_name?: string;
     avatar_url?: string;
+    catalog_hidden?: boolean;
+    is_adult_content?: boolean;
     preferences?: {
       fullName?: string;
     };
@@ -75,6 +79,8 @@ export interface Story {
     username?: string;
     full_name?: string;
     avatar_url?: string;
+    catalog_hidden?: boolean;
+    is_adult_content?: boolean;
     preferences?: {
       fullName?: string;
     };
@@ -99,6 +105,8 @@ export interface LiveStream {
     username?: string;
     full_name?: string;
     avatar_url?: string;
+    catalog_hidden?: boolean;
+    is_adult_content?: boolean;
     preferences?: {
       fullName?: string;
     };
@@ -131,6 +139,8 @@ export interface Auction {
     username?: string;
     full_name?: string;
     avatar_url?: string;
+    catalog_hidden?: boolean;
+    is_adult_content?: boolean;
     preferences?: {
       fullName?: string;
     };
@@ -391,6 +401,14 @@ export const contentAPI = {
    */
   rejectAuction: async (id: string, reason: string): Promise<{ message: string }> => {
     return apiClient.post<{ message: string }>(`/admin/content/auctions/${id}/reject`, { reason });
+  },
+
+  /**
+   * Set/clear a vendor's adult-content flag
+   * POST /admin/content/users/:userId/adult-flag
+   */
+  setAdultContentFlag: async (userId: string, isAdult: boolean, reason?: string): Promise<{ message: string }> => {
+    return apiClient.post<{ message: string }>(`/admin/content/users/${userId}/adult-flag`, { isAdult, reason });
   },
 
   /**

@@ -35,6 +35,7 @@ import {
   TabsTrigger,
 } from '@/components/ui/tabs';
 import LiveSalesEventsTab from '@/components/LiveSalesEventsTab';
+import LiveStreamSoundsTab from '@/components/LiveStreamSoundsTab';
 import {
   Select,
   SelectContent,
@@ -339,6 +340,7 @@ export default function AppManagementPage() {
         <TabsList>
           <TabsTrigger value="sign-posts">Sign Posts</TabsTrigger>
           <TabsTrigger value="live-events">Live Sales Events</TabsTrigger>
+          <TabsTrigger value="live-sounds">Live Stream Sounds</TabsTrigger>
         </TabsList>
         <TabsContent value="sign-posts" className="space-y-6">
           <Card>
@@ -729,6 +731,9 @@ export default function AppManagementPage() {
       </TabsContent>
       <TabsContent value="live-events">
         <LiveSalesEventsTab />
+      </TabsContent>
+      <TabsContent value="live-sounds">
+        <LiveStreamSoundsTab />
       </TabsContent>
     </Tabs>
   </div>

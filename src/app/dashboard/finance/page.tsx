@@ -764,7 +764,7 @@ const FinancePage = () => {
   const fetchSounds = async () => {
     try {
       setSoundsLoading(true);
-      const sounds = await financeAPI.getSounds();
+      const sounds = await financeAPI.getSounds('gift');
       setAllSounds(sounds);
     } catch (err: any) {
       console.error('Failed to fetch sounds:', err);
@@ -813,7 +813,8 @@ const FinancePage = () => {
     }
     const isSingle = giftForm.animation_type === 'lottie_single';
     if (isSingle && obj.steps && obj.steps.length === 1) {
-      setGiftForm((prev) => ({ ...prev, lottie_config: JSON.stringify({ lottieUrl: obj.steps[0].lottieUrl }, null, 2) as any }));
+      const lottieUrl = obj.steps[0].lottieUrl;
+      setGiftForm((prev) => ({ ...prev, lottie_config: JSON.stringify({ lottieUrl }, null, 2) as any }));
     } else if (obj.lottieUrl && (!obj.steps || obj.steps.length === 0)) {
       setGiftForm((prev) => ({ ...prev, lottie_config: JSON.stringify({ lottieUrl: obj.lottieUrl }, null, 2) as any }));
     } else {

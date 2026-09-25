@@ -31,6 +31,7 @@ import {
   Settings,
   Gift,
   Smartphone,
+  Megaphone,
 } from 'lucide-react';
 
 interface NavItem {
@@ -116,6 +117,12 @@ const navItems: NavItem[] = [
     icon: Mail,
     permission: 'view_memos',
     badgeKey: 'memos',
+  },
+  {
+    title: 'Broadcasts',
+    href: '/dashboard/broadcasts',
+    icon: Megaphone,
+    permission: 'send_broadcasts',
   },
   {
     title: 'Reports',
