@@ -116,23 +116,23 @@ class APIClient {
     localStorage.removeItem('refreshToken');
   }
 
-  public get<T>(url: string, config?: any): Promise<T> {
+  public get<T = any>(url: string, config?: any): Promise<T> {
     return this.client.get(url, config).then((res) => res.data);
   }
 
-  public post<T>(url: string, data?: any, config?: any): Promise<T> {
+  public post<T = any>(url: string, data?: any, config?: any): Promise<T> {
     return this.client.post(url, data, config).then((res) => res.data);
   }
 
-  public patch<T>(url: string, data?: any, config?: any): Promise<T> {
+  public patch<T = any>(url: string, data?: any, config?: any): Promise<T> {
     return this.client.patch(url, data, config).then((res) => res.data);
   }
 
-  public put<T>(url: string, data?: any, config?: any): Promise<T> {
+  public put<T = any>(url: string, data?: any, config?: any): Promise<T> {
     return this.client.put(url, data, config).then((res) => res.data);
   }
 
-  public delete<T>(url: string, config?: any): Promise<T> {
+  public delete<T = any>(url: string, config?: any): Promise<T> {
     return this.client.delete(url, config).then((res) => res.data);
   }
 }

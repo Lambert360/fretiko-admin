@@ -376,4 +376,98 @@ export const logisticsAPI = {
   getPartnerMetrics: async (partnerId: string): Promise<any> => {
     return apiClient.get(`/admin/logistics/partners/${partnerId}/metrics`);
   },
+
+  /**
+   * List verified partner companies (admin moderation)
+   * GET /logistics-partners/verified
+   */
+  getPartners: async (filters?: PartnerFilters): Promise<{ partners: PartnerRow[]; total: number; page: number; limit: number }> => {
+    const params = new URLSearchParams();
+    if (filters?.status && filters.status !== 'all') params.append('status', filters.status);
+    if (filters?.search) params.append('search', filters.search);
+    if (filters?.page) params.append('page', filters.page.toString());
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+
+    const res: any = await apiClient.get(`/logistics-partners/verified${params.toString() ? `?${params.toString()}` : ''}`);
+    return res.data || { partners: [], total: 0, page: 1, limit: 20 };
+  },
+
+  /**
+   * Change partner status — suspend / reactivate / terminate
+   * PATCH /logistics-partners/verified/:id/status
+   */
+  updatePartnerStatus: async (partnerId: string, status: 'active' | 'suspended' | 'terminated', reason?: string): Promise<any> => {
+    return apiClient.patch(`/logistics-partners/verified/${partnerId}/status`, { status, reason });
+  },
+
+  /**
+   * Warn a partner — notification + email + audit event
+   * POST /logistics-partners/verified/:id/warn
+   */
+  warnPartner: async (partnerId: string, message: string): Promise<any> => {
+    return apiClient.post(`/logistics-partners/verified/${partnerId}/warn`, { message });
+  },
+
+  /**
+   * Add/remove territory bans
+   * PATCH /logistics-partners/verified/:id/banned-areas
+   */
+  setPartnerBannedAreas: async (partnerId: string, payload: { add?: string[]; remove?: string[]; reason?: string }): Promise<any> => {
+    return apiClient.patch(`/logistics-partners/verified/${partnerId}/banned-areas`, payload);
+  },
+
+  /**
+   * Broadcast a message to all partners (or specific ids)
+   * POST /logistics-partners/broadcast
+   */
+  broadcastToPartners: async (payload: { title: string; message: string; partnerIds?: string[] }): Promise<any> => {
+    return apiClient.post('/logistics-partners/broadcast', payload);
+  },
+
+  /**
+   * Review a partner's service-area expansion request
+   * POST /logistics-partners/verified/:id/area-expansion
+   */
+  reviewAreaExpansion: async (partnerId: string, payload: { approve?: string[]; reject?: string[]; reason?: string }): Promise<any> => {
+    return apiClient.post(`/logistics-partners/verified/${partnerId}/area-expansion`, payload);
+  },
+
+  /**
+   * Moderation history for one partner
+   * GET /logistics-partners/verified/:id/moderation-history
+   */
+  getPartnerModerationHistory: async (partnerId: string): Promise<ModerationEvent[]> => {
+    const res: any = await apiClient.get(`/logistics-partners/verified/${partnerId}/moderation-history`);
+    return res.data || [];
+  },
 };
+
+/** Raw verified_logistics_partners row (snake_case from backend) */
+export interface PartnerRow {
+  id: string;
+  company_name: string;
+  partner_username?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  company_logo_url?: string;
+  service_areas?: string[];
+  banned_service_areas?: string[];
+  pending_service_areas?: string[];
+  partner_status: 'active' | 'suspended' | 'terminated';
+  total_riders?: number;
+  total_deliveries?: number;
+  total_revenue?: number;
+  verified_at?: string;
+  created_at?: string;
+}
+
+export interface ModerationEvent {
+  id: string;
+  partner_id: string;
+  action: 'warn' | 'suspend' | 'reactivate' | 'terminate' | 'ban_area' | 'unban_area' | 'broadcast'
+        | 'area_request' | 'area_approved' | 'area_rejected';
+  reason?: string;
+  areas: string[];
+  performed_by?: string;
+  created_at: string;
+}

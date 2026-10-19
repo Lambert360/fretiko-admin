@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { Search, Truck, Package, Clock, CheckCircle, AlertCircle, MapPin, User, Star, Eye, Loader2, MoreVertical } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import AdminAnalytics from '@/components/AdminAnalytics';
+import PartnersTab from '@/components/logistics/PartnersTab';
 import {
   Dialog,
   DialogContent,
@@ -41,7 +42,7 @@ import {
 export default function LogisticsPage() {
   const { isSuperAdmin, hasPermission } = useAuth();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<'riders' | 'deliveries' | 'analytics'>('riders');
+  const [activeTab, setActiveTab] = useState<'riders' | 'deliveries' | 'partners' | 'analytics'>('riders');
   const [stats, setStats] = useState<LogisticsStats | null>(null);
   const [riders, setRiders] = useState<Rider[]>([]);
   const [dialogRiders, setDialogRiders] = useState<Rider[]>([]); // Separate list for dialog dropdown
@@ -54,6 +55,7 @@ export default function LogisticsPage() {
   const [deliveryStatusFilter, setDeliveryStatusFilter] = useState<'all' | Delivery['status']>('all');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [pendingExpansionCount, setPendingExpansionCount] = useState(0);
   const limit = 20;
 
   // Analytics state
@@ -87,6 +89,8 @@ export default function LogisticsPage() {
         fetchRiders();
       } else if (activeTab === 'deliveries') {
         fetchDeliveries();
+      } else if (activeTab === 'partners') {
+        setIsLoading(false);
       } else if (activeTab === 'analytics') {
         fetchAnalytics();
       }
@@ -410,6 +414,24 @@ export default function LogisticsPage() {
           </button>
           <button
             onClick={() => {
+              setActiveTab('partners');
+              setPage(1);
+            }}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'partners'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Companies
+            {pendingExpansionCount > 0 && (
+              <span className="ml-2 inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-amber-500 text-white">
+                {pendingExpansionCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => {
               setActiveTab('analytics');
               setPage(1);
             }}
@@ -425,7 +447,7 @@ export default function LogisticsPage() {
       </div>
 
       {/* Search and Filters */}
-      {activeTab !== 'analytics' && (
+      {(activeTab === 'riders' || activeTab === 'deliveries') && (
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -658,6 +680,8 @@ export default function LogisticsPage() {
             )}
           </CardContent>
         </Card>
+      ) : activeTab === 'partners' ? (
+        <PartnersTab onPendingCount={setPendingExpansionCount} />
       ) : activeTab === 'analytics' ? (
         <AdminAnalytics
           data={analyticsData}
@@ -671,7 +695,7 @@ export default function LogisticsPage() {
       ) : null}
       
       {/* Pagination - Only show for riders and deliveries tabs */}
-      {activeTab !== 'analytics' && total > limit && (
+      {(activeTab === 'riders' || activeTab === 'deliveries') && total > limit && (
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
             Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} results

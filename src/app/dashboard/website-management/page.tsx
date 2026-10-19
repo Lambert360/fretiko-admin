@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Search, Plus, Edit, Trash2, Eye, Mail, Phone, Calendar, MapPin, Briefcase, Save, X, Upload, Image as ImageIcon } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { apiClient } from '@/lib/api'
+import LandingTab from '@/components/website-management/LandingTab'
 
 // Types
 interface BlogPost {
@@ -476,6 +477,7 @@ export default function WebsiteManagementPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="blog">Blog Posts</TabsTrigger>
+          <TabsTrigger value="landing">Landing</TabsTrigger>
           <TabsTrigger value="careers">Careers</TabsTrigger>
           <TabsTrigger value="about">About</TabsTrigger>
           <TabsTrigger value="support">Support</TabsTrigger>
@@ -983,6 +985,11 @@ export default function WebsiteManagementPage() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Landing Page Tab */}
+        <TabsContent value="landing" className="space-y-6">
+          <LandingTab />
         </TabsContent>
       </Tabs>
 

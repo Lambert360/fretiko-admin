@@ -41,7 +41,7 @@ interface NavItem {
   permission?: string;
   permissions?: string[]; // Alternative: array of permissions (OR logic)
   roles?: string[];
-  badgeKey?: 'disputes' | 'reports' | 'memos' | 'orders' | 'notifications';
+  badgeKey?: 'disputes' | 'reports' | 'memos' | 'orders' | 'notifications' | 'partnerExpansions';
 }
 
 const navItems: NavItem[] = [
@@ -86,6 +86,7 @@ const navItems: NavItem[] = [
     href: '/dashboard/logistics',
     icon: Truck,
     permission: 'view_riders',
+    badgeKey: 'partnerExpansions',
   },
   {
     title: 'Partnerships',

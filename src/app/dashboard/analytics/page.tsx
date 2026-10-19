@@ -15,16 +15,24 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { analyticsAPI, type PlatformStats, type AnalyticsSummary, type TimeSeriesData, type AuctionAnalyticsSummary, type ConversionMetrics, type VendorByOrders, type LiveSalesAnalytics as LiveSalesAnalyticsData } from '@/lib/api/analytics';
+import { analyticsAPI, type PlatformStats, type AnalyticsSummary, type TimeSeriesData, type AuctionAnalyticsSummary, type ConversionMetrics, type VendorByOrders, type LiveSalesAnalytics as LiveSalesAnalyticsData, type ProductsTabAnalytics, type PlatformListingsAnalytics, type VendorsRidersAnalytics } from '@/lib/api/analytics';
+import { ordersAPI, type OrderStats } from '@/lib/api/orders';
 import { InfoAlert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { LineChart } from '@/components/charts/LineChart';
+import { PieChart } from '@/components/charts/PieChart';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import LiveSalesAnalytics from '@/components/LiveSalesAnalytics';
-import { BarChart3, TrendingUp, Users, ShoppingCart, DollarSign, AlertCircle, Calendar, Info, Gavel, Clock, UserCheck, Award, Video } from 'lucide-react';
+import { BarChart3, TrendingUp, Users, ShoppingCart, DollarSign, AlertCircle, Info, Gavel, Clock, UserCheck, Award, Video, PieChart as PieChartIcon, Package, Wrench, Layers } from 'lucide-react';
 import { formatCurrency, formatNumber } from '@/lib/utils/formatting';
+
+const ORDER_STATUS_COLORS: Record<string, string> = {
+  Pending: '#f59e0b',
+  Processing: '#3b82f6',
+  Completed: '#10b981',
+  Cancelled: '#ef4444',
+};
 
 export default function AnalyticsPage() {
   const { isSuperAdmin, hasPermission } = useAuth();
@@ -34,11 +42,19 @@ export default function AnalyticsPage() {
   const [auctionAnalytics, setAuctionAnalytics] = useState<AuctionAnalyticsSummary | null>(null);
   const [conversionMetrics, setConversionMetrics] = useState<ConversionMetrics | null>(null);
   const [vendorsByOrders, setVendorsByOrders] = useState<VendorByOrders[] | null>(null);
+  const [productsTabAnalytics, setProductsTabAnalytics] = useState<ProductsTabAnalytics | null>(null);
   const [liveSalesAnalytics, setLiveSalesAnalytics] = useState<LiveSalesAnalyticsData | null>(null);
+  const [orderStats, setOrderStats] = useState<OrderStats | null>(null);
+  const [platformListings, setPlatformListings] = useState<PlatformListingsAnalytics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [liveSalesLoading, setLiveSalesLoading] = useState(true);
+  const [platformListingsLoading, setPlatformListingsLoading] = useState(true);
+  const [vendorsRiders, setVendorsRiders] = useState<VendorsRidersAnalytics | null>(null);
+  const [vendorsRidersLoading, setVendorsRidersLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [liveSalesError, setLiveSalesError] = useState<string | null>(null);
+  const [platformListingsError, setPlatformListingsError] = useState<string | null>(null);
+  const [vendorsRidersError, setVendorsRidersError] = useState<string | null>(null);
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
     start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA'),
@@ -47,6 +63,7 @@ export default function AnalyticsPage() {
 
   const canViewAnalytics = isSuperAdmin || hasPermission('view_platform_stats');
   const canViewRevenue = isSuperAdmin || hasPermission('view_revenue');
+  const canViewOrders = isSuperAdmin || hasPermission('view_orders');
 
   useEffect(() => {
     if (canViewAnalytics) {
@@ -60,13 +77,15 @@ export default function AnalyticsPage() {
       setIsLoading(true);
       setError(null);
       
-      const [stats, summary, timeSeries, auctions, conversion, vendors] = await Promise.all([
+      const [stats, summary, timeSeries, auctions, conversion, vendors, productsTab, orderStatsResult] = await Promise.all([
         analyticsAPI.getPlatformStats(),
         analyticsAPI.getAnalyticsSummary(),
         analyticsAPI.getTimeSeries(dateRange.start, dateRange.end, period, new Date().getTimezoneOffset()),
         analyticsAPI.getAuctionAnalyticsSummary(dateRange.start, dateRange.end),
         analyticsAPI.getConversionMetrics(),
         analyticsAPI.getTopVendorsByOrders(),
+        analyticsAPI.getProductsTabAnalytics(dateRange.start, dateRange.end),
+        canViewOrders ? ordersAPI.getStats() : Promise.resolve(null),
       ]);
 
       setPlatformStats(stats);
@@ -75,6 +94,8 @@ export default function AnalyticsPage() {
       setAuctionAnalytics(auctions);
       setConversionMetrics(conversion);
       setVendorsByOrders(vendors);
+      setProductsTabAnalytics(productsTab);
+      setOrderStats(orderStatsResult);
     } catch (err: any) {
       console.error('Failed to fetch analytics:', err);
       setError(err.response?.data?.message || 'Failed to load analytics data');
@@ -100,6 +121,47 @@ export default function AnalyticsPage() {
   useEffect(() => {
     if (canViewAnalytics) {
       fetchLiveSales();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canViewAnalytics]);
+
+  const fetchPlatformListings = async () => {
+    try {
+      setPlatformListingsLoading(true);
+      setPlatformListingsError(null);
+      const data = await analyticsAPI.getPlatformListings();
+      setPlatformListings(data);
+    } catch (err: any) {
+      console.error('Failed to fetch platform listings:', err);
+      setPlatformListingsError(err.response?.data?.message || 'Failed to load platform listings data');
+    } finally {
+      setPlatformListingsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (canViewAnalytics) {
+      fetchPlatformListings();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canViewAnalytics]);
+
+  const fetchVendorsRiders = async () => {
+    try {
+      setVendorsRidersLoading(true);
+      setVendorsRidersError(null);
+      setVendorsRiders(await analyticsAPI.getVendorsRiders());
+    } catch (err: any) {
+      console.error('Failed to fetch vendors/riders analytics:', err);
+      setVendorsRidersError(err.response?.data?.message || 'Failed to load vendor and rider data');
+    } finally {
+      setVendorsRidersLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (canViewAnalytics) {
+      fetchVendorsRiders();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canViewAnalytics]);
@@ -157,17 +219,17 @@ export default function AnalyticsPage() {
             className="px-3 py-2 border rounded-md bg-background"
           />
         </div>
-        <Button onClick={fetchAllData}>
-          <Calendar className="h-4 w-4 mr-2" />
-          Apply
-        </Button>
       </div>
 
       {/* Tabs */}
-      <TabsList className="grid w-full max-w-md grid-cols-2">
+      <TabsList className="grid w-full max-w-lg grid-cols-3">
         <TabsTrigger value="overview" className="flex items-center gap-2">
           <BarChart3 className="h-4 w-4" />
           Overview
+        </TabsTrigger>
+        <TabsTrigger value="platform" className="flex items-center gap-2">
+          <Layers className="h-4 w-4" />
+          Platform
         </TabsTrigger>
         <TabsTrigger value="live-sales" className="flex items-center gap-2">
           <Video className="h-4 w-4" />
@@ -235,12 +297,12 @@ export default function AnalyticsPage() {
               {canViewRevenue && (
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+                    <CardTitle className="text-sm font-medium">Platform Revenue</CardTitle>
                     <DollarSign className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{formatCurrency(platformStats.totalRevenue)}</div>
-                    <p className="text-xs text-muted-foreground mt-1">Platform revenue</p>
+                    <div className="text-2xl font-bold">{platformStats.totalRevenue != null ? formatCurrency(platformStats.totalRevenue) : '—'}</div>
+                    <p className="text-xs text-muted-foreground mt-1">Commission from released escrows (all-time)</p>
                   </CardContent>
                 </Card>
               )}
@@ -321,6 +383,60 @@ export default function AnalyticsPage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* New Users Trend Chart - Always Visible */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  New Users Trend
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                </CardTitle>
+                <CardDescription>New signups over time (based on account creation)</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {timeSeriesData.length === 0 ? (
+                  <EmptyState
+                    icon={Users}
+                    title="No signup data"
+                    description="Signup data will appear here once new users join the platform"
+                  />
+                ) : (
+                  <LineChart
+                    data={timeSeriesData as Array<{ date: string; [key: string]: string | number }>}
+                    dataKeys={[
+                      { key: 'users', name: 'New Users', color: '#8b5cf6' },
+                    ]}
+                    formatYAxis="number"
+                    height={250}
+                    showLegend={false}
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+              {/* Order Status Breakdown */}
+              {canViewOrders && orderStats && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      Order Status Breakdown
+                      <PieChartIcon className="h-4 w-4 text-muted-foreground" />
+                    </CardTitle>
+                    <CardDescription>Distribution of orders by current status (all-time)</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <PieChart
+                      data={[
+                        { name: 'Pending', value: orderStats.pendingOrders, color: ORDER_STATUS_COLORS.Pending },
+                        { name: 'Processing', value: orderStats.processingOrders, color: ORDER_STATUS_COLORS.Processing },
+                        { name: 'Completed', value: orderStats.completedOrders, color: ORDER_STATUS_COLORS.Completed },
+                        { name: 'Cancelled', value: orderStats.cancelledOrders, color: ORDER_STATUS_COLORS.Cancelled },
+                      ]}
+                      height={280}
+                    />
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Conversion Metrics (Time to First Purchase) */}
               {conversionMetrics && (
@@ -428,6 +544,87 @@ export default function AnalyticsPage() {
                 </Card>
               )}
 
+              {/* Products Tab Discovery (HomeScreen tab visits) */}
+              {productsTabAnalytics && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      Products Tab Discovery
+                      <UserCheck className="h-4 w-4 text-muted-foreground" />
+                    </CardTitle>
+                    <CardDescription>How users find and return to the Products tab on the home screen</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                      <div>
+                        <div className="text-sm text-muted-foreground">Unique Visitors</div>
+                        <div className="text-2xl font-bold">{formatNumber(productsTabAnalytics.uniqueVisitors)}</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {formatNumber(productsTabAnalytics.totalVisits)} total visits in range
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">First-Time Visitors</div>
+                        <div className="text-2xl font-bold">{formatNumber(productsTabAnalytics.firstTimeVisitorsInRange)}</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {productsTabAnalytics.adoptionRate.toFixed(1)}% of all users have visited
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Repeat Visit Rate</div>
+                        <div className="text-2xl font-bold">{productsTabAnalytics.repeatVisitRate.toFixed(1)}%</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {formatNumber(productsTabAnalytics.repeatVisitors)} returning visitors
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Visits per Visitor</div>
+                        <div className="text-2xl font-bold">{productsTabAnalytics.visitsPerVisitor.toFixed(2)}</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {formatNumber(productsTabAnalytics.allTimeUniqueVisitors)} all-time visitors
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Signup -> first visit latency */}
+                    <div className="mt-6">
+                      <h3 className="text-sm font-semibold mb-1">Time to First Visit (after signup)</h3>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Median {productsTabAnalytics.discoveryLatency.medianHours}h · Mean {productsTabAnalytics.discoveryLatency.meanHours}h · {formatNumber(productsTabAnalytics.discoveryLatency.sampleSize)} users
+                      </p>
+                      {(() => {
+                        const b = productsTabAnalytics.discoveryLatency.buckets;
+                        const total = b.within24h + b.within7d + b.within30d + b.over30d || 1;
+                        const rows = [
+                          { label: 'Within 24h', count: b.within24h, color: 'bg-green-500' },
+                          { label: 'Within 7 days', count: b.within7d, color: 'bg-blue-500' },
+                          { label: 'Within 30 days', count: b.within30d, color: 'bg-yellow-500' },
+                          { label: 'Over 30 days', count: b.over30d, color: 'bg-orange-500' },
+                        ];
+                        return (
+                          <div className="space-y-3">
+                            {rows.map(row => (
+                              <div key={row.label} className="flex items-center gap-3">
+                                <div className="w-32 text-sm text-muted-foreground">{row.label}</div>
+                                <div className="flex-1 bg-secondary rounded-full h-2">
+                                  <div
+                                    className={`${row.color} h-2 rounded-full`}
+                                    style={{ width: `${(row.count / total) * 100}%` }}
+                                  />
+                                </div>
+                                <div className="w-16 text-sm text-right">
+                                  {((row.count / total) * 100).toFixed(1)}%
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Top Vendors by Orders (Order-Count-Based Ranking) */}
               {vendorsByOrders && (
                 <Card>
@@ -452,8 +649,8 @@ export default function AnalyticsPage() {
                             </div>
                           </div>
                           <div className="text-right">
-                            <div className="font-bold">{formatCurrency(vendor.totalRevenue)}</div>
-                            <p className="text-xs text-muted-foreground">Avg: {formatCurrency(vendor.averageOrderValue)}</p>
+                            <div className="font-bold">{vendor.totalRevenue != null ? formatCurrency(vendor.totalRevenue) : '—'}</div>
+                            <p className="text-xs text-muted-foreground">Avg: {vendor.averageOrderValue != null ? formatCurrency(vendor.averageOrderValue) : '—'}</p>
                           </div>
                         </div>
                       ))}
@@ -492,9 +689,9 @@ export default function AnalyticsPage() {
                         </div>
                       </div>
                       <div>
-                        <div className="text-sm text-muted-foreground">Auction Revenue</div>
+                        <div className="text-sm text-muted-foreground">Auction Commission</div>
                         <div className="text-2xl font-bold">
-                          {formatCurrency(auctionAnalytics.totalAuctionRevenue)}
+                          {auctionAnalytics.totalAuctionRevenue != null ? formatCurrency(auctionAnalytics.totalAuctionRevenue) : '—'}
                         </div>
                       </div>
                     </div>
@@ -510,7 +707,7 @@ export default function AnalyticsPage() {
                             <thead>
                               <tr className="border-b border-border">
                                 <th className="text-left py-2 pr-4">Title</th>
-                                <th className="text-right py-2 pr-4">Revenue</th>
+                                <th className="text-right py-2 pr-4">Final Price</th>
                                 <th className="text-right py-2 pr-4">Bids</th>
                                 <th className="text-right py-2">Bidders</th>
                               </tr>
@@ -551,7 +748,7 @@ export default function AnalyticsPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Top Categories</CardTitle>
-                  <CardDescription>Best performing product categories</CardDescription>
+                  <CardDescription>Best performing product categories by sales volume</CardDescription>
                 </CardHeader>
                 <CardContent>
                   {!analyticsSummary.topCategories || analyticsSummary.topCategories.length === 0 ? (
@@ -572,7 +769,7 @@ export default function AnalyticsPage() {
                           </div>
                         </div>
                         {canViewRevenue && (
-                          <span className="font-bold">{formatCurrency(category.revenue || 0)}</span>
+                          <span className="font-bold">{category.revenue != null ? formatCurrency(category.revenue) : '—'}</span>
                         )}
                       </div>
                       ))}
@@ -584,7 +781,7 @@ export default function AnalyticsPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Top Vendors</CardTitle>
-                  <CardDescription>Highest performing vendors</CardDescription>
+                  <CardDescription>Ranked by platform commission generated</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
@@ -600,7 +797,7 @@ export default function AnalyticsPage() {
                           </div>
                         </div>
                         {canViewRevenue && (
-                          <span className="font-bold">{formatCurrency(vendor.revenue)}</span>
+                          <span className="font-bold">{vendor.revenue != null ? formatCurrency(vendor.revenue) : '—'}</span>
                         )}
                       </div>
                     ))}
@@ -625,8 +822,8 @@ export default function AnalyticsPage() {
                   </div>
                   {canViewRevenue && (
                     <div className="text-center p-4 border rounded-lg">
-                      <div className="text-2xl font-bold">{formatCurrency(analyticsSummary.totalRevenue)}</div>
-                      <div className="text-sm text-muted-foreground mt-1">Total Revenue</div>
+                      <div className="text-2xl font-bold">{analyticsSummary.totalRevenue != null ? formatCurrency(analyticsSummary.totalRevenue) : '—'}</div>
+                      <div className="text-sm text-muted-foreground mt-1">Platform Revenue</div>
                     </div>
                   )}
                   <div className="text-center p-4 border rounded-lg">
@@ -635,8 +832,8 @@ export default function AnalyticsPage() {
                   </div>
                   {canViewRevenue && (
                     <div className="text-center p-4 border rounded-lg">
-                      <div className="text-2xl font-bold">{formatCurrency(analyticsSummary.averageOrderValue)}</div>
-                      <div className="text-sm text-muted-foreground mt-1">Avg Order Value</div>
+                      <div className="text-2xl font-bold">{analyticsSummary.averageOrderValue != null ? formatCurrency(analyticsSummary.averageOrderValue) : '—'}</div>
+                      <div className="text-sm text-muted-foreground mt-1">Avg Commission / Order</div>
                     </div>
                   )}
                 </div>
@@ -645,6 +842,189 @@ export default function AnalyticsPage() {
           )}
         </>
       )}
+      </TabsContent>
+
+      <TabsContent value="platform" className="space-y-6">
+        {platformListingsError && (
+          <div className="bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-md">
+            {platformListingsError}
+          </div>
+        )}
+
+        {platformListingsLoading ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          </div>
+        ) : platformListings ? (
+          <>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  Listed Inventory & GMV
+                  <Layers className="h-4 w-4 text-muted-foreground" />
+                </CardTitle>
+                <CardDescription>
+                  Snapshot of what's currently live on the platform — counts and the value of that inventory
+                  if every listing sold at its current price (not actual sales revenue)
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                  <div className="p-4 border rounded-lg">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                      <Package className="h-4 w-4" />
+                      Products Listed
+                    </div>
+                    <div className="text-2xl font-bold">{formatNumber(platformListings.products.total)}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {formatNumber(platformListings.products.draft)} drafts · {formatNumber(platformListings.products.multiItemListings)} multi-item
+                    </div>
+                  </div>
+                  <div className="p-4 border rounded-lg">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                      <Wrench className="h-4 w-4" />
+                      Services Listed
+                    </div>
+                    <div className="text-2xl font-bold">{formatNumber(platformListings.services.total)}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {formatNumber(platformListings.services.draft)} drafts
+                    </div>
+                  </div>
+                  <div className="p-4 border rounded-lg">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                      <Gavel className="h-4 w-4" />
+                      Auctions Open
+                    </div>
+                    <div className="text-2xl font-bold">{formatNumber(platformListings.auctions.open)}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {formatNumber(platformListings.auctions.scheduled)} scheduled · {formatNumber(platformListings.auctions.active)} active
+                    </div>
+                  </div>
+                  <div className="p-4 border rounded-lg bg-primary/5">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                      <DollarSign className="h-4 w-4" />
+                      Total Listed GMV
+                    </div>
+                    <div className="text-2xl font-bold">
+                      {platformListings.totalListedGMV != null ? formatCurrency(platformListings.totalListedGMV) : '—'}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">Products + services + open auctions</div>
+                  </div>
+                </div>
+
+                <div className="mt-6 grid gap-4 md:grid-cols-3">
+                  <div className="p-3 border rounded-lg">
+                    <p className="text-sm font-medium">Products</p>
+                    <p className="text-lg font-bold mt-1">
+                      {platformListings.products.listedValue != null ? formatCurrency(platformListings.products.listedValue) : '—'}
+                    </p>
+                  </div>
+                  <div className="p-3 border rounded-lg">
+                    <p className="text-sm font-medium">Services</p>
+                    <p className="text-lg font-bold mt-1">
+                      {platformListings.services.listedValue != null ? formatCurrency(platformListings.services.listedValue) : '—'}
+                    </p>
+                  </div>
+                  <div className="p-3 border rounded-lg">
+                    <p className="text-sm font-medium">Open Auctions</p>
+                    <p className="text-lg font-bold mt-1">
+                      {platformListings.auctions.listedValue != null ? formatCurrency(platformListings.auctions.listedValue) : '—'}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        ) : (
+          <EmptyState
+            icon={Layers}
+            title="No listings data"
+            description="Platform inventory data will appear here once products, services, or auctions are listed"
+          />
+        )}
+
+        {vendorsRidersError && (
+          <div className="bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-md">
+            {vendorsRidersError}
+          </div>
+        )}
+
+        {vendorsRidersLoading ? (
+          <div className="flex items-center justify-center h-32">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          </div>
+        ) : vendorsRiders && (
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  Vendors
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                </CardTitle>
+                <CardDescription>Registered sellers and their account status</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{formatNumber(vendorsRiders.vendors.total)}</div>
+                <p className="text-xs text-muted-foreground mb-4">registered vendors</p>
+                <div className="space-y-2 text-sm">
+                  {[
+                    { label: 'Active', value: vendorsRiders.vendors.active, color: 'text-green-600' },
+                    { label: 'Suspended', value: vendorsRiders.vendors.suspended, color: 'text-red-600' },
+                    { label: 'Verified (badge)', value: vendorsRiders.vendors.verified, color: 'text-blue-600' },
+                  ].map(row => (
+                    <div key={row.label} className="flex items-center justify-between p-3 border rounded-lg">
+                      <span className="text-muted-foreground">{row.label}</span>
+                      <span className={`font-bold ${row.color}`}>{formatNumber(row.value)}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  Riders
+                  <UserCheck className="h-4 w-4 text-muted-foreground" />
+                </CardTitle>
+                <CardDescription>Registered riders and their verification status</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{formatNumber(vendorsRiders.riders.totalRegistered)}</div>
+                <p className="text-xs text-muted-foreground mb-4">registered riders</p>
+
+                <h3 className="text-sm font-semibold mb-2">Verified riders ({formatNumber(vendorsRiders.riders.verified.total)})</h3>
+                <div className="space-y-2 text-sm mb-4">
+                  {[
+                    { label: 'Active', value: vendorsRiders.riders.verified.active, color: 'text-green-600' },
+                    { label: 'Suspended', value: vendorsRiders.riders.verified.suspended, color: 'text-yellow-600' },
+                    { label: 'Terminated', value: vendorsRiders.riders.verified.terminated, color: 'text-red-600' },
+                  ].map(row => (
+                    <div key={row.label} className="flex items-center justify-between p-3 border rounded-lg">
+                      <span className="text-muted-foreground">{row.label}</span>
+                      <span className={`font-bold ${row.color}`}>{formatNumber(row.value)}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <h3 className="text-sm font-semibold mb-2">Verification applications</h3>
+                <div className="space-y-2 text-sm">
+                  {[
+                    { label: 'In progress', value: vendorsRiders.riders.applications.inProgress },
+                    { label: 'Under review', value: vendorsRiders.riders.applications.underReview },
+                    { label: 'Verified', value: vendorsRiders.riders.applications.verified },
+                    { label: 'Rejected', value: vendorsRiders.riders.applications.rejected },
+                  ].map(row => (
+                    <div key={row.label} className="flex items-center justify-between p-3 border rounded-lg">
+                      <span className="text-muted-foreground">{row.label}</span>
+                      <span className="font-bold">{formatNumber(row.value)}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </TabsContent>
 
       <TabsContent value="live-sales" className="space-y-6">

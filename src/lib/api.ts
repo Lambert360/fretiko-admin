@@ -90,6 +90,21 @@ export const apiClient = {
   getStorageStats: async () => {
     return client.get('/admin/website-content/upload/stats');
   },
+
+  // Landing page content (hero slides + body rows)
+  getLandingContent: async () => {
+    return client.get('/admin/website-content/landing-content');
+  },
+
+  updateLandingSection: async (section: string, data: { content: Record<string, any>; isActive?: boolean }) => {
+    return client.put(`/admin/website-content/landing-content/${section}`, data);
+  },
+
+  uploadLandingImage: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return client.post('/admin/website-content/upload/landing-image', formData);
+  },
 };
 
 export default apiClient;

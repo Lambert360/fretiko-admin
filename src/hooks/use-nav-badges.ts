@@ -12,16 +12,21 @@ export interface NavBadges {
   memos: number;
   orders: number;
   notifications: number;
+  partnerExpansions: number;
 }
 
 export function useNavBadges() {
-  const { token, staff } = useAuth();
+  const { staff } = useAuth();
+  // Token lives in localStorage (same as apiClient / use-admin-notifications) —
+  // it is not exposed on the auth context.
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const [badges, setBadges] = useState<NavBadges>({
     disputes: 0,
     reports: 0,
     memos: 0,
     orders: 0,
     notifications: 0,
+    partnerExpansions: 0,
   });
   const [isLoading, setIsLoading] = useState(false);
 
