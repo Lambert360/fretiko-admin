@@ -18,7 +18,7 @@ export interface Dispute {
   description?: string;
 }
 
-export interface DisputeDetail extends Dispute {
+export interface DisputeDetail extends Omit<Dispute, 'complainant' | 'respondent'> {
   orderId: string;
   complainant: {
     id: string;

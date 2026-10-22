@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { AlertCircle, CheckCircle, XCircle, Shield, AlertTriangle } from 'lucide-react';
 import { getFullAuctionBidHistory, invalidateBid, type FullBidHistoryItem } from '@/lib/api/auctions';
-import { toast } from 'sonner';
+import { toast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
 
 interface BidHistoryModalProps {
@@ -33,8 +33,10 @@ export function BidHistoryModal({ auctionId, auctionTitle, isOpen, onClose }: Bi
       const data = await getFullAuctionBidHistory(auctionId);
       setBids(data);
     } catch (error: any) {
-      toast.error('Failed to load bid history', {
+      toast({
+        title: 'Failed to load bid history',
         description: error.message || 'Please try again',
+        variant: 'destructive',
       });
     } finally {
       setLoading(false);
@@ -48,14 +50,17 @@ export function BidHistoryModal({ auctionId, auctionTitle, isOpen, onClose }: Bi
     setInvalidating(bidId);
     try {
       const result = await invalidateBid(bidId, reason);
-      toast.success('Bid invalidated successfully', {
+      toast({
+        title: 'Bid invalidated successfully',
         description: `New current bid: ₣${result.new_current_bid}`,
       });
       // Reload bid history
       await loadBidHistory();
     } catch (error: any) {
-      toast.error('Failed to invalidate bid', {
+      toast({
+        title: 'Failed to invalidate bid',
         description: error.message || 'Please try again',
+        variant: 'destructive',
       });
     } finally {
       setInvalidating(null);

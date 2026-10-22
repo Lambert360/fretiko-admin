@@ -22,7 +22,7 @@ export function SkipLink({ href, children, className }: SkipLinkProps) {
       }
     };
 
-    const link = document.querySelector(`a[href="${href}"]`);
+    const link = document.querySelector<HTMLElement>(`a[href="${href}"]`);
     if (link) {
       link.addEventListener('keydown', handleKeyDown);
       return () => {

@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { runFraudCheck, type FraudAlert } from '@/lib/api/auctions';
-import { toast } from 'sonner';
+import { toast } from '@/hooks/use-toast';
 
 interface FraudAlertBadgeProps {
   auctionId: string;
@@ -31,17 +31,22 @@ export function FraudAlertBadge({ auctionId, initialAlerts = [], onAlertsUpdated
       onAlertsUpdated?.(result.alerts);
       
       if (result.alerts_found === 0) {
-        toast.success('No fraud alerts detected', {
+        toast({
+          title: 'No fraud alerts detected',
           description: 'This auction appears to be legitimate',
         });
       } else {
-        toast.warning(`${result.alerts_found} fraud alert(s) detected`, {
+        toast({
+          title: `${result.alerts_found} fraud alert(s) detected`,
           description: 'Review bid history for details',
+          variant: 'destructive',
         });
       }
     } catch (error: any) {
-      toast.error('Fraud check failed', {
+      toast({
+        title: 'Fraud check failed',
         description: error.message || 'Please try again',
+        variant: 'destructive',
       });
     } finally {
       setChecking(false);

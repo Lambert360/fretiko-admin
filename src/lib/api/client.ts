@@ -55,18 +55,20 @@ class APIClient {
         if (error.response?.status === 401 && !originalRequest._retry) {
           originalRequest._retry = true;
 
+          const errorData = error.response?.data as { message?: string } | undefined;
+
           // Log the error for debugging
           const errorDetails = {
             url: originalRequest?.url,
             method: originalRequest?.method,
-            message: error.response?.data?.message || error.response?.data,
+            message: errorData?.message || error.response?.data,
             hasToken: !!this.getAccessToken(),
           };
           
           console.error('401 Unauthorized Error:', errorDetails);
 
           // Check if this is a permission issue vs authentication issue
-          const errorMessage = error.response?.data?.message || '';
+          const errorMessage = errorData?.message || '';
           const isPermissionError = errorMessage.toLowerCase().includes('permission') || 
                                     errorMessage.toLowerCase().includes('access denied');
 
