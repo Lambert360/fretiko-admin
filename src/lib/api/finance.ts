@@ -451,6 +451,46 @@ export interface UpdateSoundDto {
   context?: 'gift' | 'live_stream';
 }
 
+export interface FeeRate {
+  rate_type: string;
+  /** Fraction for percentage fees (0.10 = 10%); flat Freti amount for auction_listing_fee */
+  rate: number;
+  label: string;
+  description: string | null;
+  applies_to: string;
+  /** When the current rate took effect */
+  effective_at: string;
+  /** Scheduled future change — promoted automatically once its date arrives */
+  pending_rate: number | null;
+  pending_effective_at: string | null;
+  updated_by: string | null;
+  updated_at: string;
+}
+
+export interface FeeRateHistoryEntry {
+  id: string;
+  rate_type: string;
+  old_rate: number | null;
+  new_rate: number;
+  reason: string | null;
+  changed_by: string | null;
+  changed_at: string;
+  /** When the change took/takes effect (null = pre-scheduling entries, applied immediately) */
+  effective_at: string | null;
+  staff?: { staff_id: string; full_name: string } | null;
+}
+
+/** Rate types whose value is a fraction displayed as a percentage */
+export const PERCENTAGE_FEE_TYPES = new Set([
+  'item_commission',
+  'live_sales_commission',
+  'auction_commission_default',
+  'delivery_commission',
+  'gift_conversion_fee',
+  'escrow_fee',
+  'auction_buyer_premium',
+]);
+
 export const financeAPI = {
   /**
    * Get platform revenue analytics
@@ -780,6 +820,38 @@ export const financeAPI = {
    */
   deleteSound: async (id: string): Promise<{ success: boolean; message: string }> => {
     return apiClient.delete<{ success: boolean; message: string }>(`/gifts/admin/sounds/${id}`);
+  },
+
+  /**
+   * List all platform fee/commission rates
+   * GET /admin/finance/fee-rates
+   */
+  getFeeRates: async (): Promise<FeeRate[]> => {
+    return apiClient.get<FeeRate[]>('/admin/finance/fee-rates');
+  },
+
+  /**
+   * Fee rate change history
+   * GET /admin/finance/fee-rates/history?type=item_commission
+   */
+  getFeeRateHistory: async (type?: string): Promise<FeeRateHistoryEntry[]> => {
+    return apiClient.get<FeeRateHistoryEntry[]>(`/admin/finance/fee-rates/history${type ? `?type=${type}` : ''}`);
+  },
+
+  /**
+   * Update a platform fee/commission rate
+   * PATCH /admin/finance/fee-rates/:type
+   */
+  updateFeeRate: async (type: string, dto: { rate: number; reason: string; effective_at?: string }): Promise<FeeRate> => {
+    return apiClient.patch<FeeRate>(`/admin/finance/fee-rates/${type}`, dto);
+  },
+
+  /**
+   * Cancel a scheduled (pending) rate change
+   * POST /admin/finance/fee-rates/:type/cancel-pending
+   */
+  cancelPendingFeeRate: async (type: string, dto: { reason: string }): Promise<FeeRate> => {
+    return apiClient.post<FeeRate>(`/admin/finance/fee-rates/${type}/cancel-pending`, dto);
   },
 };
 

@@ -123,6 +123,13 @@ export const ordersAPI = {
     riderAmount: number;
     platformFee: number;
     status: 'held' | 'released' | 'refunded';
+    retail: {
+      repostId: string;
+      reposterId: string;
+      reposterName: string | null;
+      pendingCommission: number;
+      commissionRate: number;
+    } | null;
   }> => {
     return apiClient.get(`/admin/orders/${orderId}/escrow`);
   },

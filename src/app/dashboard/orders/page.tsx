@@ -60,6 +60,13 @@ export default function OrdersPage() {
   const [riderEarnings, setRiderEarnings] = useState(0);
   const [vendorAmount, setVendorAmount] = useState(0);
   const [platformFee, setPlatformFee] = useState(0);
+  const [retailInfo, setRetailInfo] = useState<{
+    repostId: string;
+    reposterId: string;
+    reposterName: string | null;
+    pendingCommission: number;
+    commissionRate: number;
+  } | null>(null);
 
   const canViewOrders = isSuperAdmin || hasPermission('view_orders');
 
@@ -209,7 +216,13 @@ export default function OrdersPage() {
       setRiderEarnings(0);
       setVendorAmount(0);
       setPlatformFee(0);
+      setRetailInfo(null);
       setIsRefundDialogOpen(true);
+      // Fetch retail attribution context — the banner tells staff whether a
+      // reposter's commission rides on this resolution. Non-blocking.
+      ordersAPI.getOrderEscrowInfo(orderId)
+        .then((info) => setRetailInfo(info.retail || null))
+        .catch(() => {});
     }
   };
 
@@ -840,6 +853,32 @@ export default function OrdersPage() {
                   )}
                 </div>
               </div>
+
+              {/* Retail attribution notice — only for repost-attributed orders */}
+              {retailInfo && (
+                <div className="rounded-lg border border-purple-200 bg-purple-50 p-4 text-sm">
+                  <div className="font-medium text-purple-900">
+                    Retailed order — reposter commission at stake
+                  </div>
+                  <p className="text-purple-800 mt-1">
+                    This order was placed via a repost
+                    {retailInfo.reposterName ? ` by ${retailInfo.reposterName}` : ''}.
+                    {retailInfo.pendingCommission > 0
+                      ? ` A commission of ⭐${retailInfo.pendingCommission.toFixed(2)} is pending for the reposter.`
+                      : ' A reposter commission will be resolved by this action.'}
+                  </p>
+                  <p className="text-purple-700 mt-2 font-medium">
+                    {refundType === 'full' &&
+                      'Full refund: the pending commission will be reversed — the reposter earns nothing.'}
+                    {refundType === 'release' &&
+                      'Release: the commission will be credited to the reposter.'}
+                    {refundType === 'partial' &&
+                      (vendorAmount > 0
+                        ? `Reposter earns ⭐${(platformFee * retailInfo.commissionRate).toFixed(2)} — based on the platform fee entered.`
+                        : 'Vendor amount is ₣0 — treated as a full refund; the pending commission will be reversed.')}
+                  </p>
+                </div>
+              )}
 
               {/* Refund Type Selection */}
               <div>

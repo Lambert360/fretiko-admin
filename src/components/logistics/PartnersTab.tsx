@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { logisticsAPI, type PartnerRow, type ModerationEvent } from '@/lib/api/logistics';
+import { logisticsAPI, type PartnerRow, type ModerationEvent, type PartnerWithdrawalRow } from '@/lib/api/logistics';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,7 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import IntegrationsPanel from './IntegrationsPanel';
 import { Search, MoreVertical, Loader2, Megaphone, AlertTriangle, Ban, History, ShieldOff, MapPin } from 'lucide-react';
 
 const statusBadge = (status: PartnerRow['partner_status']) => {
@@ -33,6 +34,16 @@ const actionLabel: Record<ModerationEvent['action'], string> = {
   terminate: 'Terminated', ban_area: 'Territory banned', unban_area: 'Territory unbanned',
   broadcast: 'Broadcast', area_request: 'Expansion requested',
   area_approved: 'Expansion approved', area_rejected: 'Expansion rejected',
+};
+
+const withdrawalBadge = (status: PartnerWithdrawalRow['status']) => {
+  const styles: Record<string, string> = {
+    completed: 'bg-emerald-100 text-emerald-800',
+    processing: 'bg-blue-100 text-blue-800',
+    pending: 'bg-amber-100 text-amber-800',
+    failed: 'bg-red-100 text-red-800',
+  };
+  return <Badge className={styles[status] || 'bg-gray-100 text-gray-800'}>{status}</Badge>;
 };
 
 export default function PartnersTab({ onPendingCount }: { onPendingCount?: (n: number) => void }) {
@@ -62,6 +73,15 @@ export default function PartnersTab({ onPendingCount }: { onPendingCount?: (n: n
   const [broadcastDialog, setBroadcastDialog] = useState<{ partner?: PartnerRow } | null>(null);
   const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '' });
 
+  const [view, setView] = useState<'companies' | 'withdrawals' | 'integrations'>('companies');
+  const [withdrawals, setWithdrawals] = useState<PartnerWithdrawalRow[]>([]);
+  const [wTotal, setWTotal] = useState(0);
+  const [wPage, setWPage] = useState(1);
+  const [wStatusFilter, setWStatusFilter] = useState<'all' | 'pending' | 'processing' | 'completed' | 'failed'>('all');
+  const [wSearch, setWSearch] = useState('');
+  const [wLoading, setWLoading] = useState(false);
+  const wLimit = 20;
+
   const loadPartners = useCallback(async () => {
     setLoading(true);
     try {
@@ -77,6 +97,21 @@ export default function PartnersTab({ onPendingCount }: { onPendingCount?: (n: n
   }, [statusFilter, search, page, toast, onPendingCount]);
 
   useEffect(() => { if (canView) loadPartners(); }, [canView, loadPartners]);
+
+  const loadWithdrawals = useCallback(async () => {
+    setWLoading(true);
+    try {
+      const res = await logisticsAPI.getPartnerWithdrawals({ status: wStatusFilter, search: wSearch, page: wPage, limit: wLimit });
+      setWithdrawals(res.withdrawals || []);
+      setWTotal(res.total || 0);
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.response?.data?.message || 'Failed to load withdrawals', variant: 'destructive' });
+    } finally {
+      setWLoading(false);
+    }
+  }, [wStatusFilter, wSearch, wPage, toast]);
+
+  useEffect(() => { if (canView && view === 'withdrawals') loadWithdrawals(); }, [canView, view, loadWithdrawals]);
 
   const run = async (fn: () => Promise<any>, successMsg: string) => {
     setActionLoading(true);
@@ -150,6 +185,120 @@ export default function PartnersTab({ onPendingCount }: { onPendingCount?: (n: n
 
   return (
     <div className="space-y-4">
+      <div className="flex gap-2">
+        <Button
+          variant={view === 'companies' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setView('companies')}
+        >
+          Companies
+        </Button>
+        <Button
+          variant={view === 'withdrawals' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setView('withdrawals')}
+        >
+          Withdrawals
+        </Button>
+        <Button
+          variant={view === 'integrations' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setView('integrations')}
+        >
+          Integrations
+        </Button>
+      </div>
+
+      {view === 'integrations' ? (
+        <IntegrationsPanel canManage={canManage} />
+      ) : view === 'withdrawals' ? (
+        <>
+          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input value={wSearch} onChange={e => { setWSearch(e.target.value); setWPage(1); }} placeholder="Search by reference..." className="pl-9" />
+            </div>
+            <select
+              value={wStatusFilter}
+              onChange={e => { setWStatusFilter(e.target.value as any); setWPage(1); }}
+              className="border rounded-md px-3 py-2 text-sm"
+            >
+              <option value="all">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="processing">Processing</option>
+              <option value="completed">Completed</option>
+              <option value="failed">Failed</option>
+            </select>
+          </div>
+
+          <Card>
+            <CardContent className="p-0">
+              {wLoading ? (
+                <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>
+              ) : withdrawals.length === 0 ? (
+                <p className="text-center text-sm text-muted-foreground py-12">No partner withdrawals found.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="border-b bg-muted/50">
+                    <tr>
+                      <th className="text-left p-3 font-medium">Company</th>
+                      <th className="text-left p-3 font-medium">Amount</th>
+                      <th className="text-left p-3 font-medium hidden md:table-cell">Bank</th>
+                      <th className="text-left p-3 font-medium hidden lg:table-cell">Reference</th>
+                      <th className="text-left p-3 font-medium">Status</th>
+                      <th className="text-left p-3 font-medium hidden lg:table-cell">Requested</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {withdrawals.map(w => (
+                      <tr key={w.id} className="border-b last:border-0 hover:bg-muted/30">
+                        <td className="p-3">
+                          <p className="font-medium">{w.companyName}</p>
+                          <p className="text-xs text-muted-foreground">{w.contactEmail}</p>
+                        </td>
+                        <td className="p-3">
+                          <p className="font-medium">₣{w.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                          {w.localAmount != null && (
+                            <p className="text-xs text-muted-foreground">→ {w.localAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} {w.currency}</p>
+                          )}
+                        </td>
+                        <td className="p-3 hidden md:table-cell text-muted-foreground">
+                          {w.bankAccount ? `${w.bankAccount.bankName} ···${w.bankAccount.accountNumber.slice(-4)}` : '—'}
+                        </td>
+                        <td className="p-3 hidden lg:table-cell">
+                          <p className="font-mono text-xs">{w.reference || '—'}</p>
+                          {w.externalTransferId && <p className="text-xs text-muted-foreground">FLW {w.externalTransferId}</p>}
+                        </td>
+                        <td className="p-3">
+                          {withdrawalBadge(w.status)}
+                          {w.status === 'failed' && w.failureReason && (
+                            <p className="text-xs text-red-600 mt-1 max-w-[180px] truncate" title={w.failureReason}>{w.failureReason}</p>
+                          )}
+                        </td>
+                        <td className="p-3 hidden lg:table-cell text-muted-foreground text-xs">
+                          {w.requestedAt ? new Date(w.requestedAt).toLocaleString() : '—'}
+                          {w.processedAt && <p className="mt-1">→ {new Date(w.processedAt).toLocaleString()}</p>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
+
+          {wTotal > wLimit && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">{wTotal} withdrawals</span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={wPage <= 1} onClick={() => setWPage(p => p - 1)}>Previous</Button>
+                <Button variant="outline" size="sm" disabled={wPage * wLimit >= wTotal} onClick={() => setWPage(p => p + 1)}>Next</Button>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -292,6 +441,8 @@ export default function PartnersTab({ onPendingCount }: { onPendingCount?: (n: n
             <Button variant="outline" size="sm" disabled={page * limit >= total} onClick={() => setPage(p => p + 1)}>Next</Button>
           </div>
         </div>
+      )}
+        </>
       )}
 
       {/* Warn dialog */}
