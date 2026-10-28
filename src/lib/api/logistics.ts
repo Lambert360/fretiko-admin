@@ -440,7 +440,116 @@ export const logisticsAPI = {
     const res: any = await apiClient.get(`/logistics-partners/verified/${partnerId}/moderation-history`);
     return res.data || [];
   },
+
+  /**
+   * Partner wallet withdrawals (monitoring)
+   * GET /logistics-partners/withdrawals
+   */
+  getPartnerWithdrawals: async (filters?: { status?: string; search?: string; page?: number; limit?: number }): Promise<{ withdrawals: PartnerWithdrawalRow[]; total: number; page: number; limit: number }> => {
+    const params = new URLSearchParams();
+    if (filters?.status && filters.status !== 'all') params.append('status', filters.status);
+    if (filters?.search) params.append('search', filters.search);
+    if (filters?.page) params.append('page', filters.page.toString());
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+
+    const res: any = await apiClient.get(`/logistics-partners/withdrawals${params.toString() ? `?${params.toString()}` : ''}`);
+    return res.data || { withdrawals: [], total: 0, page: 1, limit: 20 };
+  },
+
+  /**
+   * Partners using the Partner API (keys / webhooks) with health signals
+   * GET /logistics-partners/integrations
+   */
+  getIntegrations: async (): Promise<PartnerIntegrationRow[]> => {
+    const res: any = await apiClient.get('/logistics-partners/integrations');
+    return res.data || [];
+  },
+
+  /**
+   * Kill switch: disable/enable a partner's API keys and webhooks
+   * PATCH /logistics-partners/verified/:id/integration
+   */
+  setIntegrationEnabled: async (partnerId: string, enabled: boolean, reason?: string): Promise<any> => {
+    return apiClient.patch(`/logistics-partners/verified/${partnerId}/integration`, { enabled, reason });
+  },
+
+  /**
+   * Clear a delivery-PIN lockout on an order
+   * POST /logistics-partners/orders/:orderId/unlock-pin
+   */
+  unlockDeliveryPin: async (orderId: string): Promise<any> => {
+    return apiClient.post(`/logistics-partners/orders/${orderId}/unlock-pin`);
+  },
+
+  /**
+   * External carrier (AAJ, GIGL…) API health — per-adapter up/degraded/down
+   * GET /admin/carrier-adapters/health
+   */
+  getCarrierAdapterHealth: async (): Promise<CarrierAdapterHealthRow[]> => {
+    const res: any = await apiClient.get('/admin/carrier-adapters/health');
+    return res.health || [];
+  },
+
+  /**
+   * In-flight/failed carrier shipments for ops reconciliation
+   * GET /admin/carrier-adapters/shipments
+   */
+  getCarrierShipments: async (filters?: { partnerId?: string; status?: string }): Promise<CarrierShipmentRow[]> => {
+    const params = new URLSearchParams();
+    if (filters?.partnerId) params.append('partnerId', filters.partnerId);
+    if (filters?.status) params.append('status', filters.status);
+    const res: any = await apiClient.get(`/admin/carrier-adapters/shipments${params.toString() ? `?${params.toString()}` : ''}`);
+    return res.shipments || [];
+  },
 };
+
+export interface CarrierAdapterHealthRow {
+  partner_id: string;
+  adapter_key: string;
+  company_name?: string | null;
+  status: 'up' | 'degraded' | 'down';
+  consecutive_failures: number;
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  last_error: string | null;
+  last_latency_ms: number | null;
+  last_operation: 'quote' | 'book' | 'track' | 'cancel' | null;
+  updated_at: string;
+}
+
+export interface CarrierShipmentRow {
+  id: string;
+  order_id: string;
+  partner_id: string;
+  adapter_key: string;
+  carrier_booking_id: string | null;
+  tracking_ref: string | null;
+  status: string;
+  status_description: string | null;
+  quote_cost_freti: number | null;
+  buyer_price_freti: number | null;
+  booking_attempts: number;
+  last_booking_error: string | null;
+  last_polled_at: string | null;
+  booked_at: string | null;
+  delivered_at: string | null;
+  created_at: string;
+}
+
+export interface PartnerIntegrationRow {
+  partnerId: string;
+  companyName: string;
+  contactEmail?: string | null;
+  partnerStatus: 'active' | 'suspended' | 'terminated';
+  integrationEnabled: boolean;
+  managedGroups: string[];
+  activeKeys: number;
+  liveKeys: number;
+  webhookEndpoints: number;
+  lastApiUseAt: string | null;
+  failedEvents7d: number;
+  pendingEvents: number;
+}
 
 /** Raw verified_logistics_partners row (snake_case from backend) */
 export interface PartnerRow {
@@ -470,4 +579,22 @@ export interface ModerationEvent {
   areas: string[];
   performed_by?: string;
   created_at: string;
+}
+
+export interface PartnerWithdrawalRow {
+  id: string;
+  partnerId: string;
+  companyName: string;
+  contactEmail?: string | null;
+  amount: number;
+  currency: string;
+  localAmount: number | null;
+  exchangeRate: number | null;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  reference?: string;
+  externalTransferId?: string | null;
+  failureReason?: string | null;
+  requestedAt: string;
+  processedAt?: string | null;
+  bankAccount?: { accountName: string; bankName: string; accountNumber: string } | null;
 }

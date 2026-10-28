@@ -36,6 +36,7 @@ import {
 } from '@/components/ui/tabs';
 import LiveSalesEventsTab from '@/components/LiveSalesEventsTab';
 import LiveStreamSoundsTab from '@/components/LiveStreamSoundsTab';
+import RetailProgramTab from '@/components/RetailProgramTab';
 import {
   Select,
   SelectContent,
@@ -78,7 +79,7 @@ export default function AppManagementPage() {
   const [form, setForm] = useState(emptyForm);
   const [uploadingMediaIndex, setUploadingMediaIndex] = useState<number | null>(null);
 
-  const canManage = isSuperAdmin || hasPermission('manage_departments');
+  const canManage = isSuperAdmin || hasPermission('manage_departments') || hasPermission('manage_retail');
 
   const loadSignPosts = useCallback(async () => {
     setLoading(true);
@@ -341,6 +342,7 @@ export default function AppManagementPage() {
           <TabsTrigger value="sign-posts">Sign Posts</TabsTrigger>
           <TabsTrigger value="live-events">Live Sales Events</TabsTrigger>
           <TabsTrigger value="live-sounds">Live Stream Sounds</TabsTrigger>
+          <TabsTrigger value="retail-program">Retail Program</TabsTrigger>
         </TabsList>
         <TabsContent value="sign-posts" className="space-y-6">
           <Card>
@@ -734,6 +736,9 @@ export default function AppManagementPage() {
       </TabsContent>
       <TabsContent value="live-sounds">
         <LiveStreamSoundsTab />
+      </TabsContent>
+      <TabsContent value="retail-program">
+        <RetailProgramTab />
       </TabsContent>
     </Tabs>
   </div>

@@ -16,7 +16,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { financeAPI, type RevenueStats, type EscrowHealth, type Payout, type Deposit, type TotalPlatformFunds, type UserBalance, type PlatformWallet, type BankAccount, type CreateBankAccountDto, type UpdateBankAccountDto, type WithdrawRequestDto, type PlatformWithdrawal, type GiftStats, type UserGiftHolding, type VirtualGift, type CreateGiftDto, type UpdateGiftDto, type Sound, type RegionalRevenueResponse, type ProviderPerformanceResponse, type TransactionPatternsResponse, type EnhancedRevenueSummary, type Bank, type AccountPreview } from '@/lib/api/finance';
+import { financeAPI, type RevenueStats, type EscrowHealth, type Payout, type Deposit, type TotalPlatformFunds, type UserBalance, type PlatformWallet, type BankAccount, type CreateBankAccountDto, type UpdateBankAccountDto, type WithdrawRequestDto, type PlatformWithdrawal, type GiftStats, type UserGiftHolding, type VirtualGift, type CreateGiftDto, type UpdateGiftDto, type Sound, type RegionalRevenueResponse, type ProviderPerformanceResponse, type TransactionPatternsResponse, type EnhancedRevenueSummary, type Bank, type AccountPreview, type FeeRate, type FeeRateHistoryEntry, PERCENTAGE_FEE_TYPES } from '@/lib/api/finance';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -69,7 +69,7 @@ const getDefaultAddBankAccountForm = (): CreateBankAccountDto => ({
 const FinancePage = () => {
   const { isSuperAdmin, hasPermission } = useAuth();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<'revenue' | 'escrow' | 'payouts' | 'deposits' | 'user-balances' | 'platform-wallet' | 'gift-wallet' | 'regional-revenue' | 'provider-performance' | 'transaction-patterns' | 'enhanced-revenue'>('revenue');
+  const [activeTab, setActiveTab] = useState<'revenue' | 'escrow' | 'payouts' | 'deposits' | 'user-balances' | 'platform-wallet' | 'gift-wallet' | 'regional-revenue' | 'provider-performance' | 'transaction-patterns' | 'enhanced-revenue' | 'fee-rates'>('revenue');
   const [revenueStats, setRevenueStats] = useState<RevenueStats | null>(null);
   const [escrowHealth, setEscrowHealth] = useState<EscrowHealth | null>(null);
   const [payouts, setPayouts] = useState<Payout[]>([]);
@@ -167,7 +167,16 @@ const FinancePage = () => {
   const [enhancedRevenueSummary, setEnhancedRevenueSummary] = useState<EnhancedRevenueSummary | null>(null);
   const [analyticsPeriod, setAnalyticsPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>('monthly');
 
+  // Platform fee rate states
+  const [feeRates, setFeeRates] = useState<FeeRate[]>([]);
+  const [feeRateHistory, setFeeRateHistory] = useState<FeeRateHistoryEntry[]>([]);
+  const [feeRatesLoading, setFeeRatesLoading] = useState(false);
+  const [feeRateDialog, setFeeRateDialog] = useState<{ open: boolean; rate: FeeRate | null; newValue: string; reason: string; effectiveAt: string }>({ open: false, rate: null, newValue: '', reason: '', effectiveAt: '' });
+  const [cancelRateDialog, setCancelRateDialog] = useState<{ open: boolean; rate: FeeRate | null; reason: string }>({ open: false, rate: null, reason: '' });
+  const [feeRateSaving, setFeeRateSaving] = useState(false);
+
   const canViewFinance = isSuperAdmin || hasPermission('view_revenue');
+  const canManageFees = isSuperAdmin || hasPermission('manage_platform_fees');
   const filteredPlatformBanks = platformBanks.filter((bank) => bank.name.toLowerCase().includes(bankSearchQuery.toLowerCase()));
 
   useEffect(() => {
@@ -200,6 +209,9 @@ const FinancePage = () => {
         fetchTransactionPatterns();
       } else if (activeTab === 'enhanced-revenue') {
         fetchEnhancedRevenueSummary();
+      } else if (activeTab === 'fee-rates') {
+        fetchFeeRates();
+        fetchFeeRateHistory();
       }
     }
   }, [canViewFinance, activeTab, dateRange, payoutStatusFilter, depositStatusFilter, depositPaymentMethodFilter, depositSearchQuery, userBalanceSearchQuery, giftHoldingsSearchQuery, page, giftHoldingsPage, analyticsPeriod]);
@@ -1219,6 +1231,106 @@ const FinancePage = () => {
     }
   };
 
+  const fetchFeeRates = async () => {
+    try {
+      setFeeRatesLoading(true);
+      setError(null);
+      const data = await financeAPI.getFeeRates();
+      setFeeRates(data);
+    } catch (err: any) {
+      console.error('Failed to fetch fee rates:', err);
+      const errorMessage = err.response?.data?.message || 'Failed to load platform fee rates';
+      setError(errorMessage);
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setFeeRatesLoading(false);
+    }
+  };
+
+  const fetchFeeRateHistory = async () => {
+    try {
+      const data = await financeAPI.getFeeRateHistory();
+      setFeeRateHistory(data);
+    } catch (err: any) {
+      console.error('Failed to fetch fee rate history:', err);
+    }
+  };
+
+  const formatFeeRateValue = (rate: FeeRate | { rate_type: string; rate: number | null }) => {
+    if (rate.rate === null) return '—';
+    return PERCENTAGE_FEE_TYPES.has(rate.rate_type)
+      ? `${(rate.rate * 100).toFixed(2)}%`
+      : `${rate.rate} Freti`;
+  };
+
+  const saveFeeRate = async () => {
+    const { rate, newValue, reason, effectiveAt } = feeRateDialog;
+    if (!rate) return;
+    const parsed = parseFloat(newValue);
+    if (isNaN(parsed) || parsed < 0) {
+      toast({ title: 'Invalid value', description: 'Enter a valid non-negative number.', variant: 'destructive' });
+      return;
+    }
+    if (!reason.trim()) {
+      toast({ title: 'Reason required', description: 'Every rate change is audited — enter a reason.', variant: 'destructive' });
+      return;
+    }
+    const effectiveDate = effectiveAt ? new Date(effectiveAt) : null;
+    const isScheduled = !!effectiveDate && effectiveDate.getTime() > Date.now();
+    // Percentage types are entered as e.g. "10" for 10%; flat fees are Freti amounts
+    const apiRate = PERCENTAGE_FEE_TYPES.has(rate.rate_type) ? parsed / 100 : parsed;
+    try {
+      setFeeRateSaving(true);
+      await financeAPI.updateFeeRate(rate.rate_type, {
+        rate: apiRate,
+        reason: reason.trim(),
+        ...(effectiveDate ? { effective_at: effectiveDate.toISOString() } : {}),
+      });
+      const display = PERCENTAGE_FEE_TYPES.has(rate.rate_type) ? parsed + '%' : parsed + ' Freti';
+      toast({
+        title: isScheduled ? 'Rate change scheduled' : 'Rate updated',
+        description: isScheduled
+          ? `${rate.label} will become ${display} on ${formatDateTime(effectiveDate!.toISOString())}.`
+          : `${rate.label} is now ${display}. New orders use this rate.`,
+      });
+      setFeeRateDialog({ open: false, rate: null, newValue: '', reason: '', effectiveAt: '' });
+      fetchFeeRates();
+      fetchFeeRateHistory();
+    } catch (err: any) {
+      toast({ title: 'Update failed', description: err.response?.data?.message || 'Could not update the rate.', variant: 'destructive' });
+    } finally {
+      setFeeRateSaving(false);
+    }
+  };
+
+  const cancelPendingRate = async () => {
+    const { rate, reason } = cancelRateDialog;
+    if (!rate) return;
+    if (!reason.trim()) {
+      toast({ title: 'Reason required', description: 'Cancellations are audited — enter a reason.', variant: 'destructive' });
+      return;
+    }
+    try {
+      setFeeRateSaving(true);
+      await financeAPI.cancelPendingFeeRate(rate.rate_type, { reason: reason.trim() });
+      toast({
+        title: 'Scheduled change cancelled',
+        description: `${rate.label} stays at ${formatFeeRateValue(rate)}.`,
+      });
+      setCancelRateDialog({ open: false, rate: null, reason: '' });
+      fetchFeeRates();
+      fetchFeeRateHistory();
+    } catch (err: any) {
+      toast({ title: 'Cancel failed', description: err.response?.data?.message || 'Could not cancel the scheduled change.', variant: 'destructive' });
+    } finally {
+      setFeeRateSaving(false);
+    }
+  };
+
   if (!canViewFinance) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -1400,6 +1512,16 @@ const FinancePage = () => {
             }`}
           >
             Enhanced Revenue
+          </button>
+          <button
+            onClick={() => setActiveTab('fee-rates')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'fee-rates'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Platform Fees
           </button>
         </nav>
       </div>
@@ -3409,6 +3531,157 @@ const FinancePage = () => {
         </div>
       )}
 
+      {/* Platform Fees Tab */}
+      {activeTab === 'fee-rates' && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Platform Fee & Commission Rates</CardTitle>
+              <CardDescription>
+                Rates are snapshotted onto orders and escrows at creation — changes only affect future orders, auctions, or conversions. Every change is recorded in the audit history below.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {feeRatesLoading ? (
+                <div className="flex justify-center py-8"><LoadingSpinner /></div>
+              ) : feeRates.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No fee rates found. Run migration 251_platform_fee_rates.sql, then reload.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="py-3 pr-4 font-medium">Fee</th>
+                        <th className="py-3 pr-4 font-medium">Current rate</th>
+                        <th className="py-3 pr-4 font-medium">Applies to</th>
+                        <th className="py-3 pr-4 font-medium">Last updated</th>
+                        {canManageFees && <th className="py-3 font-medium text-right">Action</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {feeRates.map((rate) => (
+                        <tr key={rate.rate_type} className="border-b last:border-0">
+                          <td className="py-3 pr-4">
+                            <div className="font-medium">{rate.label}</div>
+                            {rate.description && (
+                              <div className="text-xs text-muted-foreground max-w-md">{rate.description}</div>
+                            )}
+                          </td>
+                          <td className="py-3 pr-4">
+                            <div className="font-semibold">{formatFeeRateValue(rate)}</div>
+                            {rate.pending_rate != null && rate.pending_effective_at && (
+                              <div className="text-xs text-amber-600 dark:text-amber-500 whitespace-nowrap">
+                                → {formatFeeRateValue({ rate_type: rate.rate_type, rate: rate.pending_rate })}{' '}
+                                from {formatDateTime(rate.pending_effective_at)}
+                                {canManageFees && (
+                                  <button
+                                    className="ml-2 underline hover:no-underline"
+                                    onClick={() => setCancelRateDialog({ open: true, rate, reason: '' })}
+                                  >
+                                    cancel
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 pr-4">
+                            <Badge variant="outline">{rate.applies_to.replace(/_/g, ' ')}</Badge>
+                          </td>
+                          <td className="py-3 pr-4 text-muted-foreground whitespace-nowrap">
+                            {rate.updated_at ? formatDateTime(rate.updated_at) : '—'}
+                          </td>
+                          {canManageFees && (
+                            <td className="py-3 text-right">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setFeeRateDialog({
+                                  open: true,
+                                  rate,
+                                  newValue: PERCENTAGE_FEE_TYPES.has(rate.rate_type)
+                                    ? (rate.rate * 100).toString()
+                                    : rate.rate.toString(),
+                                  reason: '',
+                                  effectiveAt: '',
+                                })}
+                              >
+                                <Edit className="h-4 w-4 mr-1" />
+                                Edit
+                              </Button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {!canManageFees && (
+                <p className="text-xs text-muted-foreground mt-4">
+                  You need the <code>manage_platform_fees</code> permission to change rates.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Change History</CardTitle>
+              <CardDescription>Audit log of every rate change.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {feeRateHistory.length === 0 ? (
+                <div className="text-center py-6 text-muted-foreground">No rate changes recorded yet.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="py-2 pr-4 font-medium">Fee</th>
+                        <th className="py-2 pr-4 font-medium">Change</th>
+                        <th className="py-2 pr-4 font-medium">Effective</th>
+                        <th className="py-2 pr-4 font-medium">Reason</th>
+                        <th className="py-2 pr-4 font-medium">Changed by</th>
+                        <th className="py-2 font-medium">When</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {feeRateHistory.map((entry) => {
+                        const rateMeta = feeRates.find(r => r.rate_type === entry.rate_type);
+                        return (
+                          <tr key={entry.id} className="border-b last:border-0">
+                            <td className="py-2 pr-4 font-medium">{rateMeta?.label || entry.rate_type}</td>
+                            <td className="py-2 pr-4 whitespace-nowrap">
+                              {formatFeeRateValue({ rate_type: entry.rate_type, rate: entry.old_rate })}
+                              {' → '}
+                              <span className="font-semibold">{formatFeeRateValue({ rate_type: entry.rate_type, rate: entry.new_rate })}</span>
+                            </td>
+                            <td className="py-2 pr-4 whitespace-nowrap text-muted-foreground">
+                              {entry.effective_at ? formatDateTime(entry.effective_at) : '—'}
+                            </td>
+                            <td className="py-2 pr-4 text-muted-foreground max-w-xs truncate" title={entry.reason || ''}>
+                              {entry.reason || '—'}
+                            </td>
+                            <td className="py-2 pr-4 whitespace-nowrap">
+                              {entry.staff?.full_name || entry.staff?.staff_id || '—'}
+                            </td>
+                            <td className="py-2 text-muted-foreground whitespace-nowrap">
+                              {formatDateTime(entry.changed_at)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Gift Wallet Tab */}
       {activeTab === 'gift-wallet' && (
         <div className="space-y-6">
@@ -4050,6 +4323,138 @@ const FinancePage = () => {
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
               ) : null}
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Fee Rate Dialog */}
+      <Dialog
+        open={feeRateDialog.open}
+        onOpenChange={(open) => setFeeRateDialog({ open, rate: null, newValue: '', reason: '', effectiveAt: '' })}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit {feeRateDialog.rate?.label}</DialogTitle>
+            <DialogDescription>
+              {PERCENTAGE_FEE_TYPES.has(feeRateDialog.rate?.rate_type || '')
+                ? 'Enter the new rate as a percentage.'
+                : 'Enter the new flat fee in Freti.'}
+            </DialogDescription>
+          </DialogHeader>
+          {feeRateDialog.rate && (
+            <div className="space-y-4">
+              <div className="text-sm text-muted-foreground">
+                Current: <span className="font-semibold text-foreground">{formatFeeRateValue(feeRateDialog.rate)}</span>
+                {' · '}Applies to {feeRateDialog.rate.applies_to.replace(/_/g, ' ')}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="fee-rate-value">
+                  New value ({PERCENTAGE_FEE_TYPES.has(feeRateDialog.rate.rate_type) ? '%' : 'Freti'})
+                </Label>
+                <Input
+                  id="fee-rate-value"
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={feeRateDialog.newValue}
+                  onChange={(e) => setFeeRateDialog(prev => ({ ...prev, newValue: e.target.value }))}
+                  placeholder={PERCENTAGE_FEE_TYPES.has(feeRateDialog.rate.rate_type) ? 'e.g. 10 for 10%' : 'e.g. 5'}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="fee-rate-effective">Effective from (optional)</Label>
+                <Input
+                  id="fee-rate-effective"
+                  type="datetime-local"
+                  min={new Date().toISOString().slice(0, 16)}
+                  value={feeRateDialog.effectiveAt}
+                  onChange={(e) => setFeeRateDialog(prev => ({ ...prev, effectiveAt: e.target.value }))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Leave empty to apply immediately. A future date schedules the change — the new rate starts applying automatically when it arrives, and a scheduled change is replaced if you save another one.
+                </p>
+              </div>
+              {feeRateDialog.rate.pending_rate != null && feeRateDialog.rate.pending_effective_at && (
+                <p className="text-xs text-amber-600 dark:text-amber-500">
+                  A change to {formatFeeRateValue({ rate_type: feeRateDialog.rate.rate_type, rate: feeRateDialog.rate.pending_rate })} is already scheduled for {formatDateTime(feeRateDialog.rate.pending_effective_at)} — saving will replace it.
+                </p>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="fee-rate-reason">Reason (required, shown in audit history)</Label>
+                <Input
+                  id="fee-rate-reason"
+                  value={feeRateDialog.reason}
+                  onChange={(e) => setFeeRateDialog(prev => ({ ...prev, reason: e.target.value }))}
+                  placeholder="e.g. Q3 pricing review"
+                />
+              </div>
+              {feeRateDialog.rate.rate_type === 'auction_listing_fee' && parseFloat(feeRateDialog.newValue || '0') > 0 && (
+                <p className="text-xs text-amber-600 dark:text-amber-500">
+                  Listing fees are not yet shown on the auction creation screen — sellers won't see this charge until the app is updated.
+                </p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setFeeRateDialog({ open: false, rate: null, newValue: '', reason: '', effectiveAt: '' })}
+            >
+              Cancel
+            </Button>
+            <Button onClick={saveFeeRate} disabled={feeRateSaving}>
+              {feeRateSaving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancel Scheduled Fee Rate Change Dialog */}
+      <Dialog
+        open={cancelRateDialog.open}
+        onOpenChange={(open) => setCancelRateDialog({ open, rate: null, reason: '' })}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cancel scheduled change</DialogTitle>
+            <DialogDescription>
+              {cancelRateDialog.rate && (
+                <>
+                  {cancelRateDialog.rate.label} will stay at{' '}
+                  <span className="font-semibold">{formatFeeRateValue(cancelRateDialog.rate)}</span>.
+                  The scheduled change to{' '}
+                  <span className="font-semibold">
+                    {formatFeeRateValue({ rate_type: cancelRateDialog.rate.rate_type, rate: cancelRateDialog.rate.pending_rate })}
+                  </span>
+                  {cancelRateDialog.rate.pending_effective_at && (
+                    <> on {formatDateTime(cancelRateDialog.rate.pending_effective_at)}</>
+                  )}{' '}
+                  will be discarded.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="cancel-rate-reason">Reason (required, shown in audit history)</Label>
+            <Input
+              id="cancel-rate-reason"
+              value={cancelRateDialog.reason}
+              onChange={(e) => setCancelRateDialog(prev => ({ ...prev, reason: e.target.value }))}
+              placeholder="e.g. Change no longer needed"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCancelRateDialog({ open: false, rate: null, reason: '' })}
+            >
+              Keep scheduled change
+            </Button>
+            <Button variant="destructive" onClick={cancelPendingRate} disabled={feeRateSaving}>
+              {feeRateSaving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Cancel scheduled change
             </Button>
           </DialogFooter>
         </DialogContent>
